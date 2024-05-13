@@ -1,3 +1,4 @@
+
 #include <Servo.h>
 #include <SoftwareSerial.h>
 
@@ -30,14 +31,14 @@ void loop() {
             Serial.println(receivedData);
 
             if (receivedData.trim().equals("a")) {
-                for (pos1 = 90; pos1 >= 0; pos1 -= 1) {
+                for (pos1 = 90; pos1 <= 180; pos1 += 1) {
                     servo1.write(pos1);
                 }
-            } else if (receivedData.trim().equals("b")) {
+            } else if (receivedData.trim().equals("s")) {
                 for (pos2 = 90; pos2 >= 0; pos2 -= 1) {
                     servo2.write(pos2);
                 }
-            } else if (receivedData.trim().equals("c")) {
+            } else if (receivedData.trim().equals("d")) {
                 for (pos3 = 90; pos3 >= 0; pos3 -= 1) {
                     servo3.write(pos3);
                 }
