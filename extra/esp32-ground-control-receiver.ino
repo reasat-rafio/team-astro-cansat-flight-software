@@ -4,28 +4,28 @@
 
 SoftwareSerial xbeeSerial(16, 17); // RX, TX - Replace with the pins connected to your XBee module
 WiFiClient espClient;
-PubSubClient client(espClient);
+PubSubClient mqttClient(espClient);
 
-const int payloadSize = 256;
-const char *ssid = "Orchie";
-const char *password = "meyel1912";
-const char *mqtt_server = "192.168.172.30";
+const int payloadSize = 180;
+const char *ssid = "Room-1010";
+const char *password = "room1010";
+const char *mqtt_server = "192.168.0.188";
 const int mqtt_port = 1883; // Default MQTT port
-const char *mqtt_topic = "telemetry/data";
+const char *mqtt_telemetry_topic = "telemetry/data";
 
 void setup() {
     Serial.begin(9600);
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
     setup_wifi();
-    client.setServer(mqtt_server, mqtt_port);
-    client.setCallback(callback);
+    mqttClient.setServer(mqtt_server, mqtt_port);
+    mqttClient.setCallback(callback);
 }
 
 void loop() {
-    if (!client.connected()) {
+    if (!mqttClient.connected()) {
         reconnect();
     }
-    client.loop();
+    mqttClient.loop();
 
     static String receivedData = "";
 
@@ -61,14 +61,14 @@ void setup_wifi() {
 }
 
 void reconnect() {
-    while (!client.connected()) {
+    while (!mqttClient.connected()) {
         Serial.print("Attempting MQTT connection...");
-        if (client.connect("NodeMCUClient")) {
+        if (mqttClient.connect("NodeMCUClient")) {
             Serial.println("connected");
-            client.subscribe("topic"); // Subscribe to a topic
+            mqttClient.subscribe("topic"); // Subscribe to a topic
         } else {
             Serial.print("failed, rc=");
-            Serial.print(client.state());
+            Serial.print(mqttClient.state());
             Serial.println(" try again in 5 seconds");
             delay(5000);
         }
@@ -86,40 +86,12 @@ void callback(char *topic, byte *payload, unsigned int length) {
 }
 
 void publishToMQTT(String receivedData) {
-    // Extract values from received data
-    int accelerationX = getValue(receivedData, "Acceleration X:");
-    int accelerationY = getValue(receivedData, "Acceleration Y:");
-    int gyroscopeZ = getValue(receivedData, "Gyroscope Z:");
-    float latitude = getValueFloat(receivedData, "Latitude:");
-    float longitude = getValueFloat(receivedData, "Longitude:");
-    float altitude = getValueFloat(receivedData, "Altitude:");
-    // int distance = getValue(receivedData, "Distance:");
-    float temperature = getValueFloat(receivedData, "Temperature:");
-    float pressure = getValueFloat(receivedData, "Pressure:");
-    float voltage = getValueFloat(receivedData, "Voltage:");
-
     // Construct the message payload
-    String payload = String("2043,null,null,null,null,") + String(altitude) + ",null,null,null," + String(temperature) + "," + String(voltage) + "," + String(pressure) + ",null," + String(latitude) + "," + String(longitude) + ",null," + String(accelerationX) + "," + String(accelerationY) + "," + String(gyroscopeZ) + ",null,null";
+    String payload = String(receivedData);
 
-    if (client.publish(mqtt_topic, payload.c_str())) {
+    if (mqttClient.publish(mqtt_telemetry_topic, payload.c_str())) {
         Serial.println("Publish successful");
     } else {
         Serial.println("Publish failed");
     }
-}
-
-int getValue(String data, String key) {
-    int index = data.indexOf(key);
-    if (index == -1) {
-        return 0; // Return 0 if key not found
-    }
-    return data.substring(index + key.length()).toInt();
-}
-
-float getValueFloat(String data, String key) {
-    int index = data.indexOf(key);
-    if (index == -1) {
-        return 0.0; // Return 0.0 if key not found
-    }
-    return data.substring(index + key.length()).toFloat();
 }

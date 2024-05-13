@@ -19,19 +19,30 @@ Servo servo1;
 Servo servo2;
 Servo servo3;
 
+const char team_id[] = "2043";
 int pos = 0;
 int16_t accelerometer_x, accelerometer_y, gyroscope_z;
 float temperature, pressure, altitude;
 float gps_latitude, gps_longitude, gps_altitude;
+int gps_sats = 0;
 long ultrasonic_distance;
 float voltage;
+int packet_count = 0;
+char mode = 'F';
+String state = "LAUNCH_WAIT";
+float air_speed = 10.21;
+char hs_deployed = 'N';
+char pc_deployed = 'N';
+int mission_time = 0;
+String gps_time = "10:11";
+String cmd_echo = "CMD_ECHO";
 
 const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
 bool servo_1_rotated = false;
 bool servo_2_rotated = false;
 bool servo_3_rotated = false;
 
-const int payloadSize = 256; // Define the payload size
+const int payloadSize = 180; // Define the payload size
 
 void setup() {
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
@@ -63,7 +74,7 @@ void setup() {
 
 void loop() {
     readSensorData();
-    publishToXbee();
+    publishSensorDataToXbee();
     delay(1000); // Delay before sending the next data
 }
 
@@ -119,7 +130,7 @@ void readVoltageSensor() {
     voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
 }
 
-void publishToXbee() {
+void publishSensorDataToXbee() {
     String dataToSend = constructMessage();
     if (dataToSend.length() <= payloadSize) {
         xbeeSerial.print(dataToSend);
@@ -133,28 +144,27 @@ void publishToXbee() {
 }
 
 String constructMessage() {
-    String message = "";
-    message += "Acceleration X: ";
-    message += accelerometer_x;
-    message += " | Y: ";
-    message += accelerometer_y;
-    message += " | Gyroscope Z: ";
-    message += gyroscope_z;
-    message += " | Latitude: ";
-    message += gps_latitude;
-    message += " | Longitude: ";
-    message += gps_longitude;
-    message += " | Altitude: ";
-    message += gps_altitude;
-    message += " | Distance: ";
-    message += ultrasonic_distance;
-    message += " | Temperature: ";
-    message += temperature;
-    message += " | Pressure: ";
-    message += pressure;
-    message += " | Altitude: ";
-    message += altitude;
-    message += " | Voltage: ";
-    message += voltage;
+    String message = String(team_id) + ", " +
+                     String(mission_time) + ", " +
+                     String(packet_count) + ", " +
+                     String(mode) + ", " +
+                     String(state) + ", " +
+                     String(altitude) + ", " +
+                     String(air_speed) + ", " +
+                     String(hs_deployed) + ", " +
+                     String(pc_deployed) + ", " +
+                     String(temperature) + ", " +
+                     String(voltage) + ", " +
+                     String(pressure) + ", " +
+                     String(gps_time) + ", " +
+                     String(gps_altitude) + ", " +
+                     String(gps_latitude) + ", " +
+                     String(gps_longitude) + ", " +
+                     String(gps_sats) + ", " +
+                     String(accelerometer_x) + ", " +
+                     String(accelerometer_y) + ", " +
+                     String(gyroscope_z) + ", " +
+                     String(cmd_echo);
+
     return message;
 }
