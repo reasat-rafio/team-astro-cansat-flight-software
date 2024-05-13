@@ -6,8 +6,8 @@ SoftwareSerial xbeeSerial(16, 17); // RX, TX - Replace with the pins connected t
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
-const int payloadSize = 180;
-const int servoPayloadSize = 16;
+const int telemetry_payload_size = 180;
+const int servo_payload_size = 16;
 const char *ssid = "Room-1010";
 const char *password = "room1010";
 const char *mqtt_server = "192.168.0.188";
@@ -37,7 +37,7 @@ void processXBeeTelemetryData() {
     while (xbeeSerial.available()) {
         char character = xbeeSerial.read();
         receivedTelemetryData += character;
-        if (receivedTelemetryData.length() == payloadSize) { // Check if a complete payload is received
+        if (receivedTelemetryData.length() == telemetry_payload_size) { // Check if a complete payload is received
             publishToMQTT(receivedTelemetryData);
 
             Serial.println("Received data from XBee: " + receivedTelemetryData);
@@ -49,9 +49,9 @@ void processXBeeTelemetryData() {
 void processXbeeServoControl() {
     if (Serial.available()) {                             // Check if there is data available from Serial monitor
         String dataToSend = Serial.readStringUntil('\n'); // Read data from Serial monitor
-        if (dataToSend.length() <= payloadSize) {
+        if (dataToSend.length() <= telemetry_payload_size) {
             xbeeSerial.print(dataToSend);
-            for (int i = dataToSend.length(); i < payloadSize; i++) {
+            for (int i = dataToSend.length(); i < telemetry_payload_size; i++) {
                 xbeeSerial.print(" "); // Fill the remaining payload with spaces
             }
             Serial.println("Sent data to XBee: " + dataToSend); // Print the sent data
