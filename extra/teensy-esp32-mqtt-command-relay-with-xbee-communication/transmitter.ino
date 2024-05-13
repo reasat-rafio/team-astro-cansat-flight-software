@@ -7,7 +7,6 @@ WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
 const int payloadSize = 256;
-const int cmdPayloadSize = 32;
 const char *ssid = "Orchie";
 const char *password = "meyel1912";
 const char *mqtt_server = "192.168.172.30";
@@ -76,18 +75,15 @@ void callback(char *topic, byte *payload, unsigned int length) {
 
     if (strcmp(topic, mqtt_topic) == 0) {
         Serial.println("ground_station Message is here !!!");
-        if (length + 1 <= payloadSize) {
+        if (length <= payloadSize) {
             xbeeSerial.print(payloadString);
-            for (int i = length + 1; i < payloadSize; i++) {
+            for (int i = length; i < payloadSize; i++) {
                 xbeeSerial.print(" "); // Fill the remaining payload with spaces
             }
             Serial.print("Sent data to XBee: "); // Print the sent data
-            Serial.println(payloadSize);         // Print the sent data
+            Serial.println(payloadString);       // Print the sent data
         } else {
             Serial.println("Data exceeds payload size. Sending aborted.");
         }
-
-        Serial.print("Sent data to XBee: ");
-        Serial.println(payloadString);
     }
 }

@@ -21,10 +21,4 @@ void loop() {
             receivedData = "";
         }
     }
-
-    if (Serial.available()) {                             // Check if there is data available from Serial monitor
-        String dataToSend = Serial.readStringUntil('\n'); // Read data from Serial monitor
-        xbeeSerial.print(dataToSend);
-        Serial.println("Sent data to XBee: " + dataToSend); // Print the sent data
-    }
 }
