@@ -7,6 +7,7 @@ WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
 const int payloadSize = 180;
+const int servoPayloadSize = 16;
 const char *ssid = "Room-1010";
 const char *password = "room1010";
 const char *mqtt_server = "192.168.0.188";
@@ -26,17 +27,36 @@ void loop() {
         reconnect();
     }
     mqttClient.loop();
+    processXBeeTelemetryData();
+    processXbeeServoControl();
+}
 
-    static String receivedData = "";
+static String receivedTelemetryData = "";
+void processXBeeTelemetryData() {
 
     while (xbeeSerial.available()) {
         char character = xbeeSerial.read();
-        receivedData += character;
-        if (receivedData.length() == payloadSize) { // Check if a complete payload is received
-            publishToMQTT(receivedData);
+        receivedTelemetryData += character;
+        if (receivedTelemetryData.length() == payloadSize) { // Check if a complete payload is received
+            publishToMQTT(receivedTelemetryData);
 
-            Serial.println("Received data from XBee: " + receivedData);
-            receivedData = ""; // Reset receivedData for the next payload
+            Serial.println("Received data from XBee: " + receivedTelemetryData);
+            receivedTelemetryData = ""; // Reset receivedData for the next payload
+        }
+    }
+}
+
+void processXbeeServoControl() {
+    if (Serial.available()) {                             // Check if there is data available from Serial monitor
+        String dataToSend = Serial.readStringUntil('\n'); // Read data from Serial monitor
+        if (dataToSend.length() <= payloadSize) {
+            xbeeSerial.print(dataToSend);
+            for (int i = dataToSend.length(); i < payloadSize; i++) {
+                xbeeSerial.print(" "); // Fill the remaining payload with spaces
+            }
+            Serial.println("Sent data to XBee: " + dataToSend); // Print the sent data
+        } else {
+            Serial.println("Data exceeds payload size. Sending aborted.");
         }
     }
 }

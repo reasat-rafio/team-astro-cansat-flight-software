@@ -38,11 +38,11 @@ String gps_time = "10:11";
 String cmd_echo = "CMD_ECHO";
 
 const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
-bool servo_1_rotated = false;
-bool servo_2_rotated = false;
-bool servo_3_rotated = false;
+bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
+int servo_1_position = 0, servo_2_position = 0, servo_3_position = 0;
 
 const int payloadSize = 180; // Define the payload size
+const int servoPayloadSize = 16;
 
 void setup() {
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
@@ -72,10 +72,19 @@ void setup() {
     Wire1.endTransmission(true);
 }
 
+unsigned long lastSensorDataTime = 0;          // Stores the timestamp for the last sensor data transmission
+const unsigned long sensorDataInterval = 1000; // Delay between sensor data transmissions (1 second)
+
 void loop() {
-    readSensorData();
-    publishSensorDataToXbee();
-    delay(1000); // Delay before sending the next data
+    // Check if it's time to read and publish sensor data
+    if (millis() - lastSensorDataTime >= sensorDataInterval) {
+        readSensorData();
+        publishSensorDataToXbee();
+        lastSensorDataTime = millis(); // Update timestamp
+    }
+
+    // Continuously process XBee servo commands without delay
+    processXBeeServoCommands();
 }
 
 void readSensorData() {
@@ -84,6 +93,46 @@ void readSensorData() {
     readUltrasonicSensor();
     readTemperaturePressureAltitudeValues();
     readVoltageSensor();
+}
+
+static String receivedServoData = "";
+void processXBeeServoCommands() {
+    while (xbeeSerial.available()) {
+        char character = xbeeSerial.read();
+        receivedServoData += character;
+        if (receivedServoData.length() == payloadSize) { // Check if a complete payload is received
+            Serial.println(receivedServoData);
+
+            if (receivedServoData.trim().equals("a")) {
+                for (servo_1_position = 90; servo_1_position <= 180; servo_1_position += 1) {
+                    servo1.write(servo_1_position);
+                }
+            } else if (receivedServoData.trim().equals("s")) {
+                for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
+                    servo2.write(servo_2_position);
+                }
+            } else if (receivedServoData.trim().equals("d")) {
+                for (servo_3_position = 90; servo_3_position >= 0; servo_3_position -= 1) {
+                    servo3.write(servo_3_position);
+                }
+            } else if (receivedServoData.trim().equals("1")) {
+                for (servo_1_position = 0; servo_1_position <= 90; servo_1_position += 1) {
+                    servo1.write(servo_1_position);
+                }
+            } else if (receivedServoData.trim().equals("2")) {
+                for (servo_2_position = 0; servo_2_position <= 90; servo_2_position += 1) {
+                    servo2.write(servo_2_position);
+                }
+            } else if (receivedServoData.trim().equals("3")) {
+                for (servo_3_position = 0; servo_3_position <= 90; servo_3_position += 1) {
+                    servo3.write(servo_3_position);
+                }
+            }
+
+            Serial.println("Received data from XBee: " + receivedServoData);
+            receivedServoData = ""; // Reset receivedData for the next payload
+        }
+    }
 }
 
 void readAccelerometerData() {
