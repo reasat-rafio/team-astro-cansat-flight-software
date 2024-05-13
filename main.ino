@@ -41,8 +41,9 @@ const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
 bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
 int servo_1_position = 0, servo_2_position = 0, servo_3_position = 0;
 
-const int payloadSize = 180; // Define the payload size
-const int servoPayloadSize = 16;
+const int telemetry_payload_size = 180; // Define the payload size
+const int servo_payload_size = 16;
+const int command_payload_size = 32;
 
 void setup() {
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
@@ -83,8 +84,9 @@ void loop() {
         lastSensorDataTime = millis(); // Update timestamp
     }
 
-    // Continuously process XBee servo commands without delay
+    // Continuously process without delay
     processXBeeServoCommands();
+    processXBeeMqttCmdCommands();
 }
 
 void readSensorData() {
@@ -95,12 +97,25 @@ void readSensorData() {
     readVoltageSensor();
 }
 
+static String receivedMqttCMDData = "";
+void processXBeeMqttCmdCommands() {
+    while (xbeeSerial.available()) {
+        char character = xbeeSerial.read();
+        receivedMqttCMDData += character;
+        if (receivedMqttCMDData.length() == command_payload_size) { // Check if a complete payload is received
+            Serial.println("Received data from XBee: ");
+            Serial.print(receivedMqttCMDData.trim());
+            receivedMqttCMDData = "";
+        }
+    }
+}
+
 static String receivedServoData = "";
 void processXBeeServoCommands() {
     while (xbeeSerial.available()) {
         char character = xbeeSerial.read();
         receivedServoData += character;
-        if (receivedServoData.length() == payloadSize) { // Check if a complete payload is received
+        if (receivedServoData.length() == servo_payload_size) { // Check if a complete payload is received
             Serial.println(receivedServoData);
 
             if (receivedServoData.trim().equals("a")) {
@@ -181,9 +196,9 @@ void readVoltageSensor() {
 
 void publishSensorDataToXbee() {
     String dataToSend = constructMessage();
-    if (dataToSend.length() <= payloadSize) {
+    if (dataToSend.length() <= telemetry_payload_size) {
         xbeeSerial.print(dataToSend);
-        for (int i = dataToSend.length(); i < payloadSize; i++) {
+        for (int i = dataToSend.length(); i < telemetry_payload_size; i++) {
             xbeeSerial.print(" "); // Fill the remaining payload with spaces
         }
         Serial.println("Sent data to XBee: " + dataToSend); // Print the sent data

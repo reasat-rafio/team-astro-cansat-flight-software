@@ -8,11 +8,13 @@ PubSubClient mqttClient(espClient);
 
 const int telemetry_payload_size = 180;
 const int servo_payload_size = 16;
+const int command_payload_size = 32;
 const char *ssid = "Room-1010";
 const char *password = "room1010";
 const char *mqtt_server = "192.168.0.188";
 const int mqtt_port = 1883; // Default MQTT port
 const char *mqtt_telemetry_topic = "telemetry/data";
+const char *mqtt_commands_topic = "ground_station/commands";
 
 void setup() {
     Serial.begin(9600);
@@ -85,7 +87,7 @@ void reconnect() {
         Serial.print("Attempting MQTT connection...");
         if (mqttClient.connect("NodeMCUClient")) {
             Serial.println("connected");
-            mqttClient.subscribe("topic"); // Subscribe to a topic
+            mqttClient.subscribe("ground_station/commands");
         } else {
             Serial.print("failed, rc=");
             Serial.print(mqttClient.state());
@@ -99,10 +101,26 @@ void callback(char *topic, byte *payload, unsigned int length) {
     Serial.print("Message arrived in topic: ");
     Serial.println(topic);
     Serial.print("Message:");
+
+    char payloadString[length + 1]; // Add 1 for the null terminator
     for (int i = 0; i < length; i++) {
-        Serial.print((char)payload[i]);
+        payloadString[i] = (char)payload[i];
     }
-    Serial.println();
+    payloadString[length] = '\0'; // Null-terminate the string
+
+    if (strcmp(topic, mqtt_commands_topic) == 0) {
+        Serial.println("ground_station Message is here !!!");
+        if (length <= command_payload_size) {
+            xbeeSerial.print(payloadString);
+            for (int i = length; i < command_payload_size; i++) {
+                xbeeSerial.print(" "); // Fill the remaining payload with spaces
+            }
+            Serial.print("Sent data to XBee: "); // Print the sent data
+            Serial.println(payloadString);       // Print the sent data
+        } else {
+            Serial.println("Data exceeds payload size. Sending aborted.");
+        }
+    }
 }
 
 void publishToMQTT(String receivedData) {
