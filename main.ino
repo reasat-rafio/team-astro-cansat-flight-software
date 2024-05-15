@@ -91,7 +91,7 @@ unsigned long previousMillis = 0;
 const long interval = 1000; // in milliseconds
 
 void loop() {
-    // Get the current time
+    // // Get the current time
     unsigned long currentMillis = millis();
 
     // Check if it's time to toggle the LED
@@ -104,7 +104,7 @@ void loop() {
     }
 
     // Continuously process without delay
-    processXBeeCommands();
+    processXBeeData();
 }
 
 void readSensorData() {
@@ -115,7 +115,7 @@ void readSensorData() {
     readVoltageSensor();
 }
 
-void processXBeeCommands() {
+void processXBeeData() {
     static String receivedData = ""; // Define a single buffer for received data
 
     while (xbeeSerial.available()) {
@@ -123,16 +123,26 @@ void processXBeeCommands() {
         receivedData += character;
 
         // Check if a complete payload is received
-        if (receivedData.length() == COMMAND_PAYLOAD_SIZE || receivedData.length() == SERVO_PAYLOAD_SIZE) {
-            if (receivedData.length() == COMMAND_PAYLOAD_SIZE) {
-                // Process MQTT command
-                Serial.println("Received MQTT command from XBee: " + receivedData.trim());
-                // Handle MQTT command processing here
-            } else if (receivedData.length() == SERVO_PAYLOAD_SIZE) {
-                // Process servo command
-                Serial.println("Received servo command from XBee: " + receivedData.trim());
+        if (receivedData.indexOf('<') != -1 && receivedData.indexOf('>') != -1) {
+            int startIdx = receivedData.indexOf('<') + 1; // Get the index of '<'
+            int endIdx = receivedData.indexOf('>');       // Get the index of '>'
 
-                servoControl(receivedData);
+            // Extract the data between '<' and '>'
+            String extractedData = receivedData.substring(startIdx, endIdx);
+
+            // Check the command type
+            if (extractedData.charAt(0) == 'C') {
+                // Process MQTT command
+                Serial.println("Received MQTT command from XBee: " + extractedData);
+                // Handle MQTT command processing here
+            } else if (extractedData.charAt(0) == 'S') {
+                // Process servo command
+                Serial.println("Received servo command from XBee: " + extractedData);
+
+                servoControl(extractedData.substring(1));
+                // Handle servo command processing here
+            } else {
+                Serial.println("Unknown command received: " + extractedData);
             }
 
             receivedData = ""; // Reset receivedData for the next payload
@@ -203,7 +213,7 @@ void readAccelerometerData() {
     telemetryData.gyroscope_z = ROT_Z;
 }
 
-void readGPbeginTransmissionSData() {
+void readGPSData() {
     while (Serial1.available() > 0) {
         if (gps.encode(Serial1.read())) {
             telemetryData.gps_latitude = gps.location.lat();
@@ -231,17 +241,9 @@ void readVoltageSensor() {
 }
 
 void publishSensorDataToXbee() {
-    // Construct message using telemetryData struct
-    String dataToSend = constructMessage();
-    if (dataToSend.length() <= TELEMETRY_PAYLOAD_SIZE) {
-        xbeeSerial.print(dataToSend);
-        for (int i = dataToSend.length(); i < TELEMETRY_PAYLOAD_SIZE; i++) {
-            xbeeSerial.print(" "); // Fill the remaining payload with spaces
-        }
-        Serial.println("Sent data to XBee: " + dataToSend); // Print the sent data
-    } else {
-        Serial.println("Data exceeds payload size. Sending aborted.");
-    }
+    String dataToSend = "<" + constructMessage() + ">";
+    xbeeSerial.print(dataToSend);
+    Serial.println("Sent data to XBee: " + dataToSend);
 }
 
 void initializeTelemetryData(TelemetryData &data) {

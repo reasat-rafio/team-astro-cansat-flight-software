@@ -6,21 +6,21 @@ SoftwareSerial xbeeSerial(16, 17); // RX, TX - Replace with the pins connected t
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
-const int telemetry_payload_size = 180;
-const int servo_payload_size = 16;
-const int command_payload_size = 32;
-const char *ssid = "Room-1010";
-const char *password = "room1010";
-const char *mqtt_server = "192.168.0.188";
-const int mqtt_port = 1883; // Default MQTT port
-const char *mqtt_telemetry_topic = "telemetry/data";
-const char *mqtt_commands_topic = "ground_station/commands";
+const int TELEMETRY_PAYLOAD_SIZE = 200;
+const int SERVO_PAYLOAD_SIZE = 16;
+const int COMMAND_PAYLOAD_SIZE = 32;
+const char *SSID = "Room-1010";
+const char *PASSWORD = "room1010";
+const char *MQTT_SERVER = "192.168.0.188";
+const int MQTT_PORT = 1883; // Default MQTT port
+const char *MQTT_TELEMETRY_TOPIC = "telemetry/data";
+const char *MQTT_COMMANDS_TOPIC = "ground_station/commands";
 
 void setup() {
     Serial.begin(9600);
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
     setup_wifi();
-    mqttClient.setServer(mqtt_server, mqtt_port);
+    mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
     mqttClient.setCallback(callback);
 }
 
@@ -29,21 +29,33 @@ void loop() {
         reconnect();
     }
     mqttClient.loop();
-    processXBeeTelemetryData();
+    processXBeeData();
     processXbeeServoControl();
 }
 
-static String receivedTelemetryData = "";
-void processXBeeTelemetryData() {
+void processXBeeData() {
+    static String receivedData = "";
 
     while (xbeeSerial.available()) {
         char character = xbeeSerial.read();
-        receivedTelemetryData += character;
-        if (receivedTelemetryData.length() == telemetry_payload_size) { // Check if a complete payload is received
-            publishToMQTT(receivedTelemetryData);
+        receivedData += character;
 
-            Serial.println("Received data from XBee: " + receivedTelemetryData);
-            receivedTelemetryData = ""; // Reset receivedData for the next payload
+        // Check if the received data contains both '<' and '>'
+        if (receivedData.indexOf('<') != -1 && receivedData.indexOf('>') != -1) {
+            int startIdx = receivedData.indexOf('<') + 1; // Get the index of '<'
+            int endIdx = receivedData.indexOf('>');       // Get the index of '>'
+
+            // Extract the data between '<' and '>'
+            String extractedData = receivedData.substring(startIdx, endIdx);
+
+            // Do something with the extracted data (e.g., publish it to MQTT)
+            publishToMQTT(extractedData);
+
+            // Print the received data
+            Serial.println("Received data from XBee: " + extractedData);
+
+            // Clear the receivedData for the next payload
+            receivedData = "";
         }
     }
 }
@@ -51,15 +63,12 @@ void processXBeeTelemetryData() {
 void processXbeeServoControl() {
     if (Serial.available()) {                             // Check if there is data available from Serial monitor
         String dataToSend = Serial.readStringUntil('\n'); // Read data from Serial monitor
-        if (dataToSend.length() <= telemetry_payload_size) {
-            xbeeSerial.print(dataToSend);
-            for (int i = dataToSend.length(); i < telemetry_payload_size; i++) {
-                xbeeSerial.print(" "); // Fill the remaining payload with spaces
-            }
-            Serial.println("Sent data to XBee: " + dataToSend); // Print the sent data
-        } else {
-            Serial.println("Data exceeds payload size. Sending aborted.");
-        }
+
+        // Prepend 'S' to indicate servo control data
+        String message = "<S" + dataToSend + ">";
+        xbeeSerial.print(message);
+
+        Serial.println("Sent Servo data to XBee: " + dataToSend); // Print the sent data
     }
 }
 
@@ -67,9 +76,9 @@ void setup_wifi() {
     delay(10);
     Serial.println();
     Serial.print("Connecting to ");
-    Serial.println(ssid);
+    Serial.println(SSID);
 
-    WiFi.begin(ssid, password);
+    WiFi.begin(SSID, PASSWORD);
 
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
@@ -102,24 +111,21 @@ void callback(char *topic, byte *payload, unsigned int length) {
     Serial.println(topic);
     Serial.print("Message:");
 
-    char payloadString[length + 1]; // Add 1 for the null terminator
+    String payloadString = "";
+    // char payloadString[length + 1];  // Add 1 for the null terminator
     for (int i = 0; i < length; i++) {
-        payloadString[i] = (char)payload[i];
+        payloadString += (char)payload[i];
     }
-    payloadString[length] = '\0'; // Null-terminate the string
 
-    if (strcmp(topic, mqtt_commands_topic) == 0) {
+    if (strcmp(topic, MQTT_COMMANDS_TOPIC) == 0) {
         Serial.println("ground_station Message is here !!!");
-        if (length <= command_payload_size) {
-            xbeeSerial.print(payloadString);
-            for (int i = length; i < command_payload_size; i++) {
-                xbeeSerial.print(" "); // Fill the remaining payload with spaces
-            }
-            Serial.print("Sent data to XBee: "); // Print the sent data
-            Serial.println(payloadString);       // Print the sent data
-        } else {
-            Serial.println("Data exceeds payload size. Sending aborted.");
-        }
+
+        // Prepend 'C' to indicate command data
+        String message = "<C" + payloadString + ">";
+        xbeeSerial.print(message);
+
+        Serial.print("Sent data to XBee: "); // Print the sent data
+        payloadString = "";
     }
 }
 
@@ -127,7 +133,7 @@ void publishToMQTT(String receivedData) {
     // Construct the message payload
     String payload = String(receivedData);
 
-    if (mqttClient.publish(mqtt_telemetry_topic, payload.c_str())) {
+    if (mqttClient.publish(MQTT_TELEMETRY_TOPIC, payload.c_str())) {
         Serial.println("Publish successful");
     } else {
         Serial.println("Publish failed");
