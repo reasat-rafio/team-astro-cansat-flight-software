@@ -58,6 +58,8 @@ const int TELEMETRY_PAYLOAD_SIZE = 200;          // Define the payload size
 const int SERVO_PAYLOAD_SIZE = 16;
 const int COMMAND_PAYLOAD_SIZE = 32;
 
+unsigned long startTime;
+
 void setup() {
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
     Wire1.begin();
@@ -90,13 +92,16 @@ void setup() {
     bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
     bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
     bmp.setOutputDataRate(BMP3_ODR_50_HZ);
+
+    // Initialize mission start time
+    startTime = millis();
 }
 
 unsigned long previousMillis = 0;
 const long interval = 1000; // in milliseconds
 
 void loop() {
-    // // Get the current time
+    // Get the current time
     unsigned long currentMillis = millis();
 
     // Check if it's time to toggle the LED
@@ -118,6 +123,7 @@ void readSensorData() {
     readUltrasonicSensor();
     readTemperaturePressureAltitudeValues();
     readVoltageSensor();
+    updateMissionTime();
 }
 
 void processXBeeData() {
@@ -249,6 +255,10 @@ void readTemperaturePressureAltitudeValues() {
 void readVoltageSensor() {
     int sensorValue = analogRead(VOLTAGE_SENSOR_PIN);
     telemetryData.voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
+}
+
+void updateMissionTime() {
+    telemetryData.mission_time = (millis() - startTime) / 1000; // Convert to seconds
 }
 
 void publishSensorDataToXbee() {
