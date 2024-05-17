@@ -6,6 +6,7 @@
 #include <Wire.h>
 
 #define MPU6050_ADDRESS 0x68     // MPU6050 I2C address
+#define BMP390_ADDRESS 0x77      // BMP390 I2C address
 #define GPS_RX_PIN 0             // Connected to Teensy TX1 (pin 0)
 #define GPS_TX_PIN 1             // Connected to Teensy RX1 (pin 1)
 #define ULTRASONIC_TRIGGER_PIN 2 // Ultrasonic Sensor Pin Definitions
@@ -71,20 +72,24 @@ void setup() {
 
     delay(1000);
 
-    while (!Serial)
-        ;
-
-    if (!bmp.begin_I2C()) { // Use begin_I2C() for I2C communication
-        Serial.println("Could not find a valid BMP3XX sensor, check wiring!");
-        while (1)
-            ;
-    }
-
     // Initialize MPU6050
     Wire1.beginTransmission(MPU6050_ADDRESS);
     Wire1.write(0x6B); // PWR_MGMT_1 register
     Wire1.write(0);    // Wake up MPU6050
     Wire1.endTransmission(true);
+
+    // Initialize BMP390
+    if (!bmp.begin_I2C(BMP390_ADDRESS, &Wire1)) { // hardware I2C mode, can pass in address & alt Wire
+        Serial.println("Could not find a valid BMP390 sensor, check wiring!");
+        while (1) {
+        }
+    }
+
+    // Set up oversampling and filter initialization for BMP390
+    bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_8X);
+    bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
+    bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
+    bmp.setOutputDataRate(BMP3_ODR_50_HZ);
 }
 
 unsigned long previousMillis = 0;
@@ -229,10 +234,16 @@ void readUltrasonicSensor() {
 }
 
 void readTemperaturePressureAltitudeValues() {
+    // Read temperature, pressure, and altitude data from BMP390
+    if (!bmp.performReading()) {
+        Serial.println("Failed to perform reading :(");
+        return;
+    }
+
     // Read temperature, pressure, and altitude values
-    telemetryData.temperature = bmp.readTemperature();
-    telemetryData.pressure = bmp.readPressure();
-    telemetryData.altitude = bmp.readAltitude(bmp.readPressure() / 100.0); // Use real-time pressure for altitude calculation
+    telemetryData.temperature = bmp.temperature;
+    telemetryData.pressure = bmp.pressure / 100.0;
+    telemetryData.altitude = bmp.readAltitude(bmp.pressure / 100.0); // Use real-time pressure for altitude calculation
 }
 
 void readVoltageSensor() {
@@ -241,6 +252,7 @@ void readVoltageSensor() {
 }
 
 void publishSensorDataToXbee() {
+    telemetryData.packet_count++;
     String dataToSend = "<" + constructMessage() + ">";
     xbeeSerial.print(dataToSend);
     Serial.println("Sent data to XBee: " + dataToSend);
