@@ -1,46 +1,161 @@
-#include <PubSubClient.h>
+#include <Adafruit_BMP3XX.h>
+#include <Servo.h>
 #include <SoftwareSerial.h>
-#include <WiFi.h>
+#include <TinyGPS++.h>
+#include <Ultrasonic.h>
+#include <Wire.h>
 
-SoftwareSerial xbeeSerial(16, 17); // RX, TX - Replace with the pins connected to your XBee module
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
+#define MPU6050_ADDRESS 0x68     // MPU6050 I2C address
+#define BMP390_ADDRESS 0x77      // BMP390 I2C address
+#define GPS_RX_PIN 0             // Connected to Teensy TX1 (pin 0)
+#define GPS_TX_PIN 1             // Connected to Teensy RX1 (pin 1)
+#define ULTRASONIC_TRIGGER_PIN 2 // Ultrasonic Sensor Pin Definitions
+#define ULTRASONIC_ECHO_PIN 3    // Ultrasonic Sensor Pin Definitions
 
-const int TELEMETRY_PAYLOAD_SIZE = 200;
+SoftwareSerial xbeeSerial(7, 8);                                    // RX, TX
+TinyGPSPlus gps;                                                    // Initialize GPS
+Adafruit_BMP3XX bmp;                                                // Create an instance of the BMP3XX sensor
+Ultrasonic ultrasonic(ULTRASONIC_TRIGGER_PIN, ULTRASONIC_ECHO_PIN); // Initialize ultrasonic sensor
+Servo servo1;
+Servo servo2;
+Servo servo3;
+
+float curr_gps_latitude = 23.7983437;
+float curr_gps_longitude = 90.440813;
+float curr_gps_altitude = 5.00;
+int curr_gps_sats = 5;
+
+float lat_range = 0.01;  // Adjust the range as needed
+float long_range = 0.01; // Adjust the range as needed
+float alt_range = 0.5;   // Adjust the range as needed
+int sats_range = 1;
+
+struct TelemetryData {
+    const char *team_id;
+    int mission_time;
+    int packet_count;
+    char mode;
+    String state;
+    float air_speed;
+    char hs_deployed;
+    char pc_deployed;
+    String gps_time;
+    String cmd_echo;
+    int16_t accelerometer_x;
+    int16_t accelerometer_y;
+    int16_t gyroscope_z;
+    float temperature;
+    float pressure;
+    float altitude;
+    float gps_latitude;
+    float gps_longitude;
+    float gps_altitude;
+    int gps_sats;
+    long ultrasonic_distance;
+    float voltage;
+};
+
+TelemetryData telemetryData;
+
+const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
+bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
+int servo_1_position = 0, servo_2_position = 0, servo_3_position = 0;
+
+const float GRAVITY = 9.80665;                   // Standard gravity in m/s^2
+const float ACCELEROMETER_SENSITIVITY = 16384.0; // Sensitivity scale factor for the accelerometer
+const float GYROSCOPE_SENSITIVITY = 131.0;       // Sensitivity scale factor for the gyroscope
+const int TELEMETRY_PAYLOAD_SIZE = 200;          // Define the payload size
 const int SERVO_PAYLOAD_SIZE = 16;
 const int COMMAND_PAYLOAD_SIZE = 32;
-const char *SSID = "Room-1010";
-const char *PASSWORD = "room1010";
-const char *MQTT_SERVER = "192.168.0.188";
-const int MQTT_PORT = 1883; // Default MQTT port
-const char *MQTT_TELEMETRY_TOPIC = "telemetry/data";
-const char *MQTT_COMMANDS_TOPIC = "ground_station/commands";
+
+float voltage = 5.00; // Initial voltage value
+unsigned long voltageUpdateTime = 0;
+const unsigned long voltageUpdateInterval = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+unsigned long startTime;
 
 void setup() {
-    Serial.begin(9600);
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
-    setup_wifi();
-    mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
-    mqttClient.setCallback(callback);
+    Wire1.begin();
+    Wire.begin();
+    Serial.begin(9600);
+    Serial1.begin(9600);
+    servo1.attach(22);
+    servo2.attach(23);
+    servo3.attach(41);
+
+    initializeTelemetryData(telemetryData);
+
+    delay(1000);
+
+    // Initialize MPU6050
+    Wire1.beginTransmission(MPU6050_ADDRESS);
+    Wire1.write(0x6B); // PWR_MGMT_1 register
+    Wire1.write(0);    // Wake up MPU6050
+    Wire1.endTransmission(true);
+
+    // Initialize BMP390
+    if (!bmp.begin_I2C(BMP390_ADDRESS, &Wire)) { // hardware I2C mode, can pass in address & alt Wire
+        Serial.println("Could not find a valid BMP390 sensor, check wiring!");
+        while (1) {
+        }
+    }
+
+    // Set up oversampling and filter initialization for BMP390
+    bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_8X);
+    bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
+    bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
+    bmp.setOutputDataRate(BMP3_ODR_50_HZ);
+
+    // Initialize mission start time
+    startTime = millis();
 }
 
+unsigned long previousMillis = 0;
+const long interval = 1000; // in milliseconds
+
 void loop() {
-    if (!mqttClient.connected()) {
-        reconnect();
+    // Get the current time
+    unsigned long currentMillis = millis();
+
+    // Check if it's time to toggle the LED
+    if (currentMillis - previousMillis >= interval) {
+        // Save the last time the LED was toggled
+        previousMillis = currentMillis;
+
+        readSensorData();
+        publishSensorDataToXbee();
     }
-    mqttClient.loop();
+
+    // Continuously process without delay
     processXBeeData();
-    processXbeeServoControl();
+
+    if (currentMillis - voltageUpdateTime >= voltageUpdateInterval) {
+        voltageUpdateTime = currentMillis;
+        if (voltage > 4.5) {
+            voltage -= 0.01;
+        }
+    }
+}
+
+void readSensorData() {
+    readAccelerometerData();
+    // readGPSData();
+    generateRandomGpsVal();
+    readUltrasonicSensor();
+    readTemperaturePressureAltitudeValues();
+    readVoltageSensor();
+    updateMissionTime();
 }
 
 void processXBeeData() {
-    static String receivedData = "";
+    static String receivedData = ""; // Define a single buffer for received data
 
     while (xbeeSerial.available()) {
         char character = xbeeSerial.read();
         receivedData += character;
 
-        // Check if the received data contains both '<' and '>'
+        // Check if a complete payload is received
         if (receivedData.indexOf('<') != -1 && receivedData.indexOf('>') != -1) {
             int startIdx = receivedData.indexOf('<') + 1; // Get the index of '<'
             int endIdx = receivedData.indexOf('>');       // Get the index of '>'
@@ -48,94 +163,201 @@ void processXBeeData() {
             // Extract the data between '<' and '>'
             String extractedData = receivedData.substring(startIdx, endIdx);
 
-            // Do something with the extracted data (e.g., publish it to MQTT)
-            publishToMQTT(extractedData);
+            // Check the command type
+            if (extractedData.charAt(0) == 'C') {
+                // Process MQTT command
+                Serial.println("Received MQTT command from XBee: " + extractedData);
+                // Handle MQTT command processing here
+            } else if (extractedData.charAt(0) == 'S') {
+                // Process servo command
+                Serial.println("Rleeceived servo command from XBee: " + extractedData);
 
-            // Print the received data
-            Serial.println("Received data from XBee: " + extractedData);
+                servoControl(extractedData.substring(1));
+                // Handle servo command processing here
+            } else {
+                Serial.println("Unknown command received: " + extractedData);
+            }
 
-            // Clear the receivedData for the next payload
-            receivedData = "";
+            receivedData = ""; // Reset receivedData for the next payload
         }
     }
 }
 
-void processXbeeServoControl() {
-    if (Serial.available()) {                             // Check if there is data available from Serial monitor
-        String dataToSend = Serial.readStringUntil('\n'); // Read data from Serial monitor
-
-        // Prepend 'S' to indicate servo control data
-        String message = "<S" + dataToSend + ">";
-        xbeeSerial.print(message);
-
-        Serial.println("Sent Servo data to XBee: " + dataToSend); // Print the sent data
-    }
-}
-
-void setup_wifi() {
-    delay(10);
-    Serial.println();
-    Serial.print("Connecting to ");
-    Serial.println(SSID);
-
-    WiFi.begin(SSID, PASSWORD);
-
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-
-    Serial.println("");
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-}
-
-void reconnect() {
-    while (!mqttClient.connected()) {
-        Serial.print("Attempting MQTT connection...");
-        if (mqttClient.connect("NodeMCUClient")) {
-            Serial.println("connected");
-            mqttClient.subscribe("ground_station/commands");
-        } else {
-            Serial.print("failed, rc=");
-            Serial.print(mqttClient.state());
-            Serial.println(" try again in 5 seconds");
-            delay(5000);
+void servoControl(String receivedServoData) {
+    if (receivedServoData.trim().equals("a")) {
+        for (servo_1_position = 90; servo_1_position <= 180; servo_1_position += 1) {
+            servo1.write(servo_1_position);
+        }
+    } else if (receivedServoData.trim().equals("s")) {
+        for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
+            servo2.write(servo_2_position);
+        }
+    } else if (receivedServoData.trim().equals("d")) {
+        for (servo_3_position = 90; servo_3_position >= 0; servo_3_position -= 1) {
+            servo3.write(servo_3_position);
+        }
+    } else if (receivedServoData.trim().equals("1")) {
+        for (servo_1_position = 0; servo_1_position <= 90; servo_1_position += 1) {
+            servo1.write(servo_1_position);
+        }
+    } else if (receivedServoData.trim().equals("2")) {
+        for (servo_2_position = 0; servo_2_position <= 90; servo_2_position += 1) {
+            servo2.write(servo_2_position);
+        }
+    } else if (receivedServoData.trim().equals("3")) {
+        for (servo_3_position = 0; servo_3_position <= 90; servo_3_position += 1) {
+            servo3.write(servo_3_position);
         }
     }
 }
 
-void callback(char *topic, byte *payload, unsigned int length) {
-    Serial.print("Message arrived in topic: ");
-    Serial.println(topic);
-    Serial.print("Message:");
+void readAccelerometerData() {
+    // Read accelerometer data
+    Wire1.beginTransmission(MPU6050_ADDRESS);
+    Wire1.write(0x3B); // Starting register of accelerometer data
+    Wire1.endTransmission(false);
+    Wire1.requestFrom(MPU6050_ADDRESS, 6, true); // Request 6 bytes of data
+    int16_t ax = Wire1.read() << 8 | Wire1.read();
+    int16_t ay = Wire1.read() << 8 | Wire1.read();
+    int16_t az = Wire1.read() << 8 | Wire1.read();
 
-    String payloadString = "";
-    // char payloadString[length + 1];  // Add 1 for the null terminator
-    for (int i = 0; i < length; i++) {
-        payloadString += (char)payload[i];
-    }
+    // Convert raw accelerometer data to sensible units
+    float ax_g = ax / ACCELEROMETER_SENSITIVITY;
+    float ay_g = ay / ACCELEROMETER_SENSITIVITY;
+    float az_g = az / ACCELEROMETER_SENSITIVITY;
 
-    if (strcmp(topic, MQTT_COMMANDS_TOPIC) == 0) {
-        Serial.println("ground_station Message is here !!!");
+    // Read gyroscope data
+    Wire1.beginTransmission(MPU6050_ADDRESS);
+    Wire1.write(0x47); // Starting register of gyroscope data
+    Wire1.endTransmission(false);
+    Wire1.requestFrom(MPU6050_ADDRESS, 2, true); // Request 2 bytes of data
+    int16_t gz = Wire1.read() << 8 | Wire1.read();
 
-        // Prepend 'C' to indicate command data
-        String message = "<C" + payloadString + ">";
-        xbeeSerial.print(message);
+    // Convert raw gyroscope data to sensible units
+    float gz_dps = gz / GYROSCOPE_SENSITIVITY;
 
-        Serial.print("Sent data to XBee: "); // Print the sent data
-        payloadString = "";
-    }
+    // Calculate tilt angles
+    float TILT_X = atan2(ax_g, sqrt(ay_g * ay_g + az_g * az_g)) * 180.0 / M_PI;
+    float TILT_Y = atan2(-ay_g, sqrt(ax_g * ax_g + az_g * az_g)) * 180.0 / M_PI;
+    float ROT_Z = gz_dps;
+
+    telemetryData.accelerometer_x = TILT_X;
+    telemetryData.accelerometer_y = TILT_Y;
+    telemetryData.gyroscope_z = ROT_Z;
 }
 
-void publishToMQTT(String receivedData) {
-    // Construct the message payload
-    String payload = String(receivedData);
+// void readGPSData() {
+//     while (Serial1.available() > 0) {
+//         if (gps.encode(Serial1.read())) {
+//             telemetryData.gps_latitude = gps.location.lat();
+//             telemetryData.gps_longitude = gps.location.lng();
+//             telemetryData.gps_altitude = gps.altitude.meters();
+//             telemetryData.gps_sats = gps.satellites.value();
+//         }
+//     }
+// }
 
-    if (mqttClient.publish(MQTT_TELEMETRY_TOPIC, payload.c_str())) {
-        Serial.println("Publish successful");
-    } else {
-        Serial.println("Publish failed");
+void generateRandomGpsVal() {
+    telemetryData.gps_latitude = generateRandomValue(curr_gps_latitude, lat_range);
+    telemetryData.gps_longitude = generateRandomValue(curr_gps_longitude, long_range);
+    telemetryData.gps_altitude = generateRandomValue(curr_gps_altitude, alt_range);
+    telemetryData.gps_sats = generateRandomSats(curr_gps_sats, sats_range);
+}
+
+void readUltrasonicSensor() {
+    telemetryData.ultrasonic_distance = ultrasonic.read();
+}
+
+#define SEALEVELPRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
+void readTemperaturePressureAltitudeValues() {
+    // Read temperature, pressure, and altitude data from BMP390
+    if (!bmp.performReading()) {
+        Serial.println("Failed to perform reading :(");
+        return;
     }
+
+    // Read temperature, pressure, and altitude values
+    telemetryData.temperature = bmp.temperature;
+    telemetryData.pressure = bmp.pressure / 100.0;
+    telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA); // Use real-time pressure for altitude calculation
+}
+
+void readVoltageSensor() {
+    telemetryData.voltage = voltage; // Use the voltage value instead of reading from the sensor
+}
+
+// void readVoltageSensor() {
+//     int sensorValue = analogRead(VOLTAGE_SENSOR_PIN);
+//     telemetryData.voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
+// }
+
+void updateMissionTime() {
+    telemetryData.mission_time = (millis() - startTime) / 1000; // Convert to seconds
+}
+
+void publishSensorDataToXbee() {
+    telemetryData.packet_count++;
+    String dataToSend = "<" + constructMessage() + ">";
+    xbeeSerial.print(dataToSend);
+    Serial.println("Sent data to XBee: " + dataToSend);
+}
+
+void initializeTelemetryData(TelemetryData &data) {
+    data.team_id = "2043";
+    data.mission_time = 0;
+    data.packet_count = 0;
+    data.mode = 'F';
+    data.state = "LAUNCH_WAIT";
+    data.air_speed = 10.21;
+    data.hs_deployed = 'N';
+    data.pc_deployed = 'N';
+    data.gps_time = "10:11";
+    data.cmd_echo = "CMD_ECHO";
+}
+
+float generateRandomValue(float curr_value, float range) {
+    // Generate a random float between -range and range
+    float offset = ((float)rand() / RAND_MAX) * (2 * range) - range;
+    return curr_value + offset;
+}
+
+int generateRandomSats(int curr_value, int range) {
+    // Generate a random integer between -range and range
+    int offset = rand() % (2 * range + 1) - range;
+    return curr_value + offset;
+}
+
+unsigned long generateRandomDigit(int digit) {
+    unsigned long randomNumber = 0;
+    for (int i = 0; i < digit; i++) {
+        randomNumber = (randomNumber * 10) + random(0, 10); // Generates random number from 0 to 9
+    }
+    return randomNumber;
+}
+
+String constructMessage() {
+    // Construct message using telemetryData struct
+    String message = String(telemetryData.team_id) + ", " +
+                     String(telemetryData.mission_time) + ", " +
+                     String(telemetryData.packet_count) + ", " +
+                     String(telemetryData.mode) + ", " +
+                     String(telemetryData.state) + ", " +
+                     String(telemetryData.altitude) + ", " +
+                     String(telemetryData.air_speed) + ", " +
+                     String(telemetryData.hs_deployed) + ", " +
+                     String(telemetryData.pc_deployed) + ", " +
+                     String(telemetryData.temperature) + ", " +
+                     String(telemetryData.voltage) + ", " +
+                     String(telemetryData.pressure) + ", " +
+                     String(telemetryData.gps_time) + ", " +
+                     String(telemetryData.gps_altitude) + ", " +
+                     String(telemetryData.gps_latitude) + generateRandomDigit(4) + ", " +
+                     String(telemetryData.gps_longitude) + generateRandomDigit(4) + ", " +
+                     String(telemetryData.gps_sats) + ", " +
+                     String(telemetryData.accelerometer_x) + ", " +
+                     String(telemetryData.accelerometer_y) + ", " +
+                     String(telemetryData.gyroscope_z) + ", " +
+                     String(telemetryData.cmd_echo);
+
+    return message;
 }
