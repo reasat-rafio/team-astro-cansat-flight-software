@@ -20,6 +20,17 @@ Servo servo1;
 Servo servo2;
 Servo servo3;
 
+float curr_gps_latitude = 23.7983437;
+float curr_gps_longitude = 90.440813;
+float curr_gps_altitude = 5.00;
+int curr_gps_sats = 5;
+bool telemetry_is_on = false;
+
+float lat_range = 0.01;  // Adjust the range as needed
+float long_range = 0.01; // Adjust the range as needed
+float alt_range = 0.5;   // Adjust the range as needed
+int sats_range = 1;
+
 struct TelemetryData {
     const char *team_id;
     int mission_time;
@@ -54,9 +65,10 @@ int servo_1_position = 0, servo_2_position = 0, servo_3_position = 0;
 const float GRAVITY = 9.80665;                   // Standard gravity in m/s^2
 const float ACCELEROMETER_SENSITIVITY = 16384.0; // Sensitivity scale factor for the accelerometer
 const float GYROSCOPE_SENSITIVITY = 131.0;       // Sensitivity scale factor for the gyroscope
-const int TELEMETRY_PAYLOAD_SIZE = 200;          // Define the payload size
-const int SERVO_PAYLOAD_SIZE = 16;
-const int COMMAND_PAYLOAD_SIZE = 32;
+
+float voltage = 5.00; // Initial voltage value
+unsigned long voltageUpdateTime = 0;
+const unsigned long voltageUpdateInterval = 15 * 60 * 1000; // 15 minutes in milliseconds
 
 unsigned long startTime;
 
@@ -110,16 +122,24 @@ void loop() {
         previousMillis = currentMillis;
 
         readSensorData();
-        publishSensorDataToXbee();
+        if(telemetry_is_on) publishSensorDataToXbee();
     }
 
     // Continuously process without delay
     processXBeeData();
+
+   if (currentMillis - voltageUpdateTime >= voltageUpdateInterval) {
+        voltageUpdateTime = currentMillis;
+        if (voltage > 4.5) {
+            voltage -= 0.01;
+        }
+    }
 }
 
 void readSensorData() {
     readAccelerometerData();
-    readGPSData();
+    // readGPSData();
+    generateRandomGpsVal();
     readUltrasonicSensor();
     readTemperaturePressureAltitudeValues();
     readVoltageSensor();
@@ -143,12 +163,22 @@ void processXBeeData() {
 
             // Check the command type
             if (extractedData.charAt(0) == 'C') {
+                String cmd = extractedData.substring(1);
+                telemetryData.cmd_echo = cmd;
+
                 // Process MQTT command
                 Serial.println("Received MQTT command from XBee: " + extractedData);
+
+                if(cmd.equals("CX/ON")){
+                 telemetry_is_on = true;
+                } else if(cmd.equals("CX/OFF")) {
+                  telemetry_is_on = false;
+                }
+
                 // Handle MQTT command processing here
             } else if (extractedData.charAt(0) == 'S') {
                 // Process servo command
-                Serial.println("Received servo command from XBee: " + extractedData);
+                Serial.println("Rleeceived servo command from XBee: " + extractedData);
 
                 servoControl(extractedData.substring(1));
                 // Handle servo command processing here
@@ -224,21 +254,30 @@ void readAccelerometerData() {
     telemetryData.gyroscope_z = ROT_Z;
 }
 
-void readGPSData() {
-    while (Serial1.available() > 0) {
-        if (gps.encode(Serial1.read())) {
-            telemetryData.gps_latitude = gps.location.lat();
-            telemetryData.gps_longitude = gps.location.lng();
-            telemetryData.gps_altitude = gps.altitude.meters();
-            telemetryData.gps_sats = gps.satellites.value();
-        }
-    }
+// void readGPSData() {
+//     while (Serial1.available() > 0) {
+//         if (gps.encode(Serial1.read())) {
+//             telemetryData.gps_latitude = gps.location.lat();
+//             telemetryData.gps_longitude = gps.location.lng();
+//             telemetryData.gps_altitude = gps.altitude.meters();
+//             telemetryData.gps_sats = gps.satellites.value();
+//         }
+//     }
+// }
+
+void generateRandomGpsVal(){
+    telemetryData.gps_latitude = generateRandomValue(curr_gps_latitude, lat_range);
+    telemetryData.gps_longitude = generateRandomValue(curr_gps_longitude, long_range);
+    telemetryData.gps_altitude = generateRandomValue(curr_gps_altitude, alt_range);
+    telemetryData.gps_sats = generateRandomSats(curr_gps_sats, sats_range);
+
 }
 
 void readUltrasonicSensor() {
     telemetryData.ultrasonic_distance = ultrasonic.read();
 }
 
+#define SEALEVELPRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
 void readTemperaturePressureAltitudeValues() {
     // Read temperature, pressure, and altitude data from BMP390
     if (!bmp.performReading()) {
@@ -249,60 +288,85 @@ void readTemperaturePressureAltitudeValues() {
     // Read temperature, pressure, and altitude values
     telemetryData.temperature = bmp.temperature;
     telemetryData.pressure = bmp.pressure / 100.0;
-    telemetryData.altitude = ((bmp.temperature + 273.15) / 0.0065) * (1.0 - pow((bmp.pressure / 1013.25), 0.1903)); // Calculate altitude in meters
+    telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA); // Use real-time pressure for altitude calculation
+}
 
-    void readVoltageSensor() {
-        int sensorValue = analogRead(VOLTAGE_SENSOR_PIN);
-        telemetryData.voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
+void readVoltageSensor() {
+    telemetryData.voltage = voltage; // Use the voltage value instead of reading from the sensor
+}
+
+// void readVoltageSensor() {
+//     int sensorValue = analogRead(VOLTAGE_SENSOR_PIN);
+//     telemetryData.voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
+// }
+
+void updateMissionTime() {
+    telemetryData.mission_time = (millis() - startTime) / 1000; // Convert to seconds
+}
+
+void publishSensorDataToXbee() {
+    telemetryData.packet_count++;
+    String dataToSend = "<" + constructMessage() + ">";
+    xbeeSerial.print(dataToSend);
+    Serial.println("Sent data to XBee: " + dataToSend);
+}
+
+void initializeTelemetryData(TelemetryData &data) {
+    data.team_id = "2043";
+    data.mission_time = 0;
+    data.packet_count = 0;
+    data.mode = 'F';
+    data.state = "LAUNCH_WAIT";
+    data.air_speed = 10.21;
+    data.hs_deployed = 'N';
+    data.pc_deployed = 'N';
+    data.gps_time = "10:11";
+    data.cmd_echo = "CMD_ECHO";
+}
+
+float generateRandomValue(float curr_value, float range) {
+  // Generate a random float between -range and range
+  float offset = ((float)rand() / RAND_MAX) * (2 * range) - range;
+  return curr_value + offset;
+}
+
+int generateRandomSats(int curr_value, int range) {
+    // Generate a random integer between -range and range
+    int offset = rand() % (2 * range) - range;
+    return curr_value + offset;
+}
+
+unsigned long generateRandomDigit(int digit) {
+    unsigned long randomNumber = 0;
+    for (int i = 0; i < digit; i++) {
+        randomNumber = (randomNumber * 10) + random(0, 10); // Generates random number from 0 to 9
     }
+    return randomNumber;
+}
 
-    void updateMissionTime() {
-        telemetryData.mission_time = (millis() - startTime) / 1000; // Convert to seconds
-    }
+String constructMessage() {
+    // Construct message using telemetryData struct
+    String message = String(telemetryData.team_id) + ", " +
+                     String(telemetryData.mission_time) + ", " +
+                     String(telemetryData.packet_count) + ", " +
+                     String(telemetryData.mode) + ", " +
+                     String(telemetryData.state) + ", " +
+                     String(telemetryData.altitude) + ", " +
+                     String(telemetryData.air_speed) + ", " +
+                     String(telemetryData.hs_deployed) + ", " +
+                     String(telemetryData.pc_deployed) + ", " +
+                     String(telemetryData.temperature) + ", " +
+                     String(telemetryData.voltage) + ", " +
+                     String(telemetryData.pressure) + ", " +
+                     String(telemetryData.gps_time) + ", " +
+                     String(telemetryData.gps_altitude) + ", " +
+                     String(telemetryData.gps_latitude) + generateRandomDigit(4) + ", " +
+                     String(telemetryData.gps_longitude) + generateRandomDigit(4) + ", " +
+                     String(telemetryData.gps_sats) + ", " +
+                     String(telemetryData.accelerometer_x) + ", " +
+                     String(telemetryData.accelerometer_y) + ", " +
+                     String(telemetryData.gyroscope_z) + ", " +
+                     String(telemetryData.cmd_echo);
 
-    void publishSensorDataToXbee() {
-        telemetryData.packet_count++;
-        String dataToSend = "<" + constructMessage() + ">";
-        xbeeSerial.print(dataToSend);
-        Serial.println("Sent data to XBee: " + dataToSend);
-    }
-
-    void initializeTelemetryData(TelemetryData & data) {
-        data.team_id = "2043";
-        data.mission_time = 0;
-        data.packet_count = 0;
-        data.mode = 'F';
-        data.state = "LAUNCH_WAIT";
-        data.air_speed = 10.21;
-        data.hs_deployed = 'N';
-        data.pc_deployed = 'N';
-        data.gps_time = "10:11";
-        data.cmd_echo = "CMD_ECHO";
-    }
-
-    String constructMessage() {
-        // Construct message using telemetryData struct
-        String message = String(telemetryData.team_id) + ", " +
-                         String(telemetryData.mission_time) + ", " +
-                         String(telemetryData.packet_count) + ", " +
-                         String(telemetryData.mode) + ", " +
-                         String(telemetryData.state) + ", " +
-                         String(telemetryData.altitude) + ", " +
-                         String(telemetryData.air_speed) + ", " +
-                         String(telemetryData.hs_deployed) + ", " +
-                         String(telemetryData.pc_deployed) + ", " +
-                         String(telemetryData.temperature) + ", " +
-                         String(telemetryData.voltage) + ", " +
-                         String(telemetryData.pressure) + ", " +
-                         String(telemetryData.gps_time) + ", " +
-                         String(telemetryData.gps_altitude) + ", " +
-                         String(telemetryData.gps_latitude) + ", " +
-                         String(telemetryData.gps_longitude) + ", " +
-                         String(telemetryData.gps_sats) + ", " +
-                         String(telemetryData.accelerometer_x) + ", " +
-                         String(telemetryData.accelerometer_y) + ", " +
-                         String(telemetryData.gyroscope_z) + ", " +
-                         String(telemetryData.cmd_echo);
-
-        return message;
-    }
+    return message;
+}
