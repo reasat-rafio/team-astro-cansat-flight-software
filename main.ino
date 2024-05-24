@@ -25,11 +25,6 @@ Servo servo3;
 bool telemetry_is_on = false;
 bool is_landed = false;
 
-float lat_range = 0.01;  // Adjust the range as needed
-float long_range = 0.01; // Adjust the range as needed
-float alt_range = 0.5;   // Adjust the range as needed
-int sats_range = 1;
-
 const float PITOT_TUBE_VALUE_INCREMENT = 0.52606034;
 const float GAS_CONSTANT_AIR = 287.058; // Specific gas constant for dry air in J/kg/K
 const int NUM_READINGS = 101;
