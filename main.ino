@@ -6,12 +6,13 @@
 #include <Ultrasonic.h>
 #include <Wire.h>
 
-#define MPU6050_ADDRESS 0x68     // MPU6050 I2C address
-#define BMP390_ADDRESS 0x77      // BMP390 I2C address
-#define GPS_RX_PIN 0             // Connected to Teensy TX1 (pin 0)
-#define GPS_TX_PIN 1             // Connected to Teensy RX1 (pin 1)
-#define ULTRASONIC_TRIGGER_PIN 2 // Ultrasonic Sensor Pin Definitions
-#define ULTRASONIC_ECHO_PIN 3    // Ultrasonic Sensor Pin Definitions
+#define MPU6050_ADDRESS 0x68           // MPU6050 I2C address
+#define BMP390_ADDRESS 0x77            // BMP390 I2C address
+#define GPS_RX_PIN 0                   // Connected to Teensy TX1 (pin 0)
+#define GPS_TX_PIN 1                   // Connected to Teensy RX1 (pin 1)
+#define ULTRASONIC_TRIGGER_PIN 2       // Ultrasonic Sensor Pin Definitions
+#define ULTRASONIC_ECHO_PIN 3          // Ultrasonic Sensor Pin Definitions
+#define SEALEVELPRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
 
 bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8);                                    // RX, TX
@@ -24,6 +25,7 @@ Servo servo3;
 
 bool telemetry_is_on = false;
 bool is_landed = false;
+bool is_altitude_calibrated = false;
 
 const float PITOT_TUBE_VALUE_INCREMENT = 0.52606034;
 const float GAS_CONSTANT_AIR = 287.058; // Specific gas constant for dry air in J/kg/K
@@ -123,12 +125,10 @@ void loop() {
     // Get the current time
     unsigned long currentMillis = millis();
 
-    // Check if it's time to toggle the LED
     if (currentMillis - previousMillis >= interval) {
-        // Save the last time the LED was toggled
         previousMillis = currentMillis;
 
-        if (telemetry_is_on) {
+        if (telemetry_is_on && !is_landed) {
             readSensorData();
             publishSensorDataToXbee();
         };
@@ -136,6 +136,10 @@ void loop() {
 
     // Continuously process without delay
     processXBeeData();
+
+    if (is_landed) {
+        // Upon landing, the Cansat shall activate an audio beacon.
+    }
 }
 
 void readSensorData() {
@@ -189,6 +193,8 @@ void processXBeeData() {
                     telemetry_is_on = true;
                 } else if (cmd.equals("CX/OFF")) {
                     telemetry_is_on = false;
+                } else if (cmd.equals("CAL")) {
+                    calibrateAltitude();
                 }
 
                 // Handle MQTT command processing here
@@ -285,7 +291,6 @@ void readUltrasonicSensor() {
     telemetryData.ultrasonic_distance = ultrasonic.read();
 }
 
-#define SEALEVELPRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
 void readTemperaturePressureAltitudeValues() {
     // Read temperature, pressure, and altitude data from BMP390
     if (!bmp.performReading()) {
