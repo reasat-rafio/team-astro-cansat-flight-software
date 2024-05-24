@@ -136,13 +136,6 @@ void loop() {
 
     // Continuously process without delay
     processXBeeData();
-
-    if (currentMillis - voltageUpdateTime >= voltageUpdateInterval) {
-        voltageUpdateTime = currentMillis;
-        if (voltage > 4.5) {
-            voltage -= 0.01;
-        }
-    }
 }
 
 void readSensorData() {
