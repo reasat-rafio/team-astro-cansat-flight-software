@@ -22,16 +22,29 @@ Servo servo1;
 Servo servo2;
 Servo servo3;
 
-float curr_gps_latitude = 23.7983437;
-float curr_gps_longitude = 90.440813;
-float curr_gps_altitude = 5.00;
-int curr_gps_sats = 5;
 bool telemetry_is_on = false;
+bool is_landed = false;
 
 float lat_range = 0.01;  // Adjust the range as needed
 float long_range = 0.01; // Adjust the range as needed
 float alt_range = 0.5;   // Adjust the range as needed
 int sats_range = 1;
+
+const float PITOT_TUBE_VALUE_INCREMENT = 0.52606034;
+const float GAS_CONSTANT_AIR = 287.058; // Specific gas constant for dry air in J/kg/K
+const int NUM_READINGS = 101;
+float pitotTubeBaseValues[NUM_READINGS];
+float pitotTubePressureDifferences[NUM_READINGS];
+
+const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
+bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
+int servo_1_position = 0, servo_2_position = 0, servo_3_position = 0;
+
+const float GRAVITY = 9.80665;                   // Standard gravity in m/s^2
+const float ACCELEROMETER_SENSITIVITY = 16384.0; // Sensitivity scale factor for the accelerometer
+const float GYROSCOPE_SENSITIVITY = 131.0;       // Sensitivity scale factor for the gyroscope
+
+float initial_altitude = 0.0; // Global variable to store initial altitude
 
 struct TelemetryData {
     const char *team_id;
@@ -60,26 +73,7 @@ struct TelemetryData {
 
 TelemetryData telemetryData;
 
-const float PITOT_TUBE_VALUE_INCREMENT = 0.52606034;
-const float GAS_CONSTANT_AIR = 287.058; // Specific gas constant for dry air in J/kg/K
-const int NUM_READINGS = 101;
-float pitotTubeBaseValues[NUM_READINGS];
-float pitotTubePressureDifferences[NUM_READINGS];
-
-const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
-bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
-int servo_1_position = 0, servo_2_position = 0, servo_3_position = 0;
-
-const float GRAVITY = 9.80665;                   // Standard gravity in m/s^2
-const float ACCELEROMETER_SENSITIVITY = 16384.0; // Sensitivity scale factor for the accelerometer
-const float GYROSCOPE_SENSITIVITY = 131.0;       // Sensitivity scale factor for the gyroscope
-
-float voltage = 5.00; // Initial voltage value
-unsigned long voltageUpdateTime = 0;
-const unsigned long voltageUpdateInterval = 15 * 60 * 1000; // 15 minutes in milliseconds
-
 unsigned long startTime;
-
 void setup() {
     xbeeSerial.begin(9600); // Set the baud rate to match your XBee configuration
     Wire1.begin();
@@ -93,17 +87,17 @@ void setup() {
     servo3.attach(41);
 
     initializeTelemetryData(telemetryData);
-    initializeBasePitotTubeValues();
+    // initializeBasePitotTubeValues();
 
     delay(1000);
 
     // Configure the Pitot tube sensor with I2C address 0x28, on bus 0, with a -1 to +1 PSI range
-    pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
-    if (!pitotSensor.Begin()) {
-        Serial.println("Error communicating with sensor");
-        while (1) {
-        }
-    }
+    // pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
+    // if (!pitotSensor.Begin()) {
+    //   Serial.println("Error communicating with sensor");
+    //   while (1) {
+    //   }
+    // }
 
     // Initialize MPU6050
     Wire1.beginTransmission(MPU6050_ADDRESS);
@@ -141,7 +135,7 @@ void loop() {
 
         if (telemetry_is_on) {
             readSensorData();
-            publishSensorDataToXbee()
+            publishSensorDataToXbee();
         };
     }
 
@@ -158,13 +152,12 @@ void loop() {
 
 void readSensorData() {
     readAccelerometerData();
-    // readGPSData();
-    generateRandomGpsVal();
+    readGPSData();
     readUltrasonicSensor();
     readTemperaturePressureAltitudeValues();
     readVoltageSensor();
     updateMissionTime();
-    readPitotTubeVal();
+    // readPitotTubeVal();
 }
 
 void readPitotTubeVal() {
@@ -289,22 +282,15 @@ void readAccelerometerData() {
     telemetryData.gyroscope_z = ROT_Z;
 }
 
-// void readGPSData() {
-//     while (Serial1.available() > 0) {
-//         if (gps.encode(Serial1.read())) {
-//             telemetryData.gps_latitude = gps.location.lat();
-//             telemetryData.gps_longitude = gps.location.lng();
-//             telemetryData.gps_altitude = gps.altitude.meters();
-//             telemetryData.gps_sats = gps.satellites.value();
-//         }
-//     }
-// }
-
-void generateRandomGpsVal() {
-    telemetryData.gps_latitude = generateRandomValue(curr_gps_latitude, lat_range);
-    telemetryData.gps_longitude = generateRandomValue(curr_gps_longitude, long_range);
-    telemetryData.gps_altitude = generateRandomValue(curr_gps_altitude, alt_range);
-    telemetryData.gps_sats = generateRandomSats(curr_gps_sats, sats_range);
+void readGPSData() {
+    while (Serial1.available() > 0) {
+        if (gps.encode(Serial1.read())) {
+            telemetryData.gps_latitude = gps.location.lat();
+            telemetryData.gps_longitude = gps.location.lng();
+            telemetryData.gps_altitude = gps.altitude.meters();
+            telemetryData.gps_sats = gps.satellites.value();
+        }
+    }
 }
 
 void readUltrasonicSensor() {
@@ -322,17 +308,14 @@ void readTemperaturePressureAltitudeValues() {
     // Read temperature, pressure, and altitude values
     telemetryData.temperature = bmp.temperature;
     telemetryData.pressure = bmp.pressure / 100.0;
-    telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA); // Use real-time pressure for altitude calculation
+    // Subtract initial altitude for calibration
+    telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA) - initial_altitude;
 }
 
 void readVoltageSensor() {
-    telemetryData.voltage = voltage; // Use the voltage value instead of reading from the sensor
+    int sensorValue = analogRead(VOLTAGE_SENSOR_PIN);
+    telemetryData.voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
 }
-
-// void readVoltageSensor() {
-//     int sensorValue = analogRead(VOLTAGE_SENSOR_PIN);
-//     telemetryData.voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
-// }
 
 void updateMissionTime() {
     telemetryData.mission_time = (millis() - startTime) / 1000; // Convert to seconds
@@ -404,6 +387,11 @@ float getClosestBaseValue(float measuredPressure) {
         }
     }
     return closestBaseValue;
+}
+
+void calibrateAltitude() {
+    // Set the initial altitude value
+    initial_altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
 }
 
 String constructMessage() {
