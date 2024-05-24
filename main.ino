@@ -25,7 +25,12 @@ Servo servo3;
 
 bool telemetry_is_on = false;
 bool is_landed = false;
-bool is_altitude_calibrated = false;
+bool clock_running = false;
+
+unsigned long clock_start_time = 0;
+unsigned long clock_elapsed_time = 0;
+unsigned long clock_previous_millis = 0;        // Stores the last time the elapsed time was printed
+const unsigned long clock_print_interval = 100; // Interval at which to print elapsed time (in milliseconds)
 
 const float PITOT_TUBE_VALUE_INCREMENT = 0.52606034;
 const float GAS_CONSTANT_AIR = 287.058; // Specific gas constant for dry air in J/kg/K
@@ -136,9 +141,11 @@ void loop() {
 
     // Continuously process without delay
     processXBeeData();
+    runClockAndSetMissionTime();
 
     if (is_landed) {
         // Upon landing, the Cansat shall activate an audio beacon.
+        stopClock();
     }
 }
 
@@ -148,7 +155,6 @@ void readSensorData() {
     readUltrasonicSensor();
     readTemperaturePressureAltitudeValues();
     readVoltageSensor();
-    updateMissionTime();
     // readPitotTubeVal();
 }
 
@@ -191,6 +197,7 @@ void processXBeeData() {
 
                 if (cmd.equals("CX/ON")) {
                     telemetry_is_on = true;
+                    startClock();
                 } else if (cmd.equals("CX/OFF")) {
                     telemetry_is_on = false;
                 } else if (cmd.equals("CAL")) {
@@ -310,8 +317,36 @@ void readVoltageSensor() {
     telemetryData.voltage = sensorValue * (3.3 / 1023.0); // Convert sensor value to voltage (assuming 3.3V reference)
 }
 
-void updateMissionTime() {
-    telemetryData.mission_time = (millis() - startTime) / 1000; // Convert to seconds
+void startClock() {
+    if (!clock_running) {
+        clock_running = true;
+        clock_start_time = millis();
+        Serial.println("Stopwatch started.");
+    } else {
+        Serial.println("Stopwatch is already running.");
+    }
+}
+
+void runClockAndSetMissionTime() {
+    if (clock_running) {
+        unsigned long current_millis = millis();
+        if (current_millis - clock_previous_millis >= clock_print_interval) {
+            clock_previous_millis = current_millis;
+            telemetryData.mission_time = (clock_elapsed_time + current_millis - clock_start_time) / 1000.0;
+        }
+    }
+}
+
+void stopClock() {
+    if (clock_running) {
+        clock_elapsed_time += millis() - clock_start_time;
+        clock_running = false;
+        Serial.print("Stopwatch stopped. Elapsed time: ");
+        Serial.print(clock_elapsed_time / 1000.0);
+        Serial.println(" seconds");
+    } else {
+        Serial.println("Stopwatch is not running.");
+    }
 }
 
 void publishSensorDataToXbee() {
