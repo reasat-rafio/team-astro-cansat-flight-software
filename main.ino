@@ -26,6 +26,8 @@ Servo servo3;
 bool telemetry_is_on = false;
 bool is_landed = false;
 bool clock_running = false;
+bool simulation_enable = false;
+bool simulation_activate = false;
 
 unsigned long clock_start_time = 0;
 unsigned long clock_elapsed_time = 0;
@@ -37,6 +39,8 @@ const float GAS_CONSTANT_AIR = 287.058; // Specific gas constant for dry air in 
 const int NUM_READINGS = 101;
 float pitotTubeBaseValues[NUM_READINGS];
 float pitotTubePressureDifferences[NUM_READINGS];
+
+// const int BUZZER_PIN = 4;
 
 const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
 bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
@@ -194,7 +198,6 @@ void processXBeeData() {
 
                 // Process MQTT command
                 Serial.println("Received MQTT command from XBee: " + extractedData);
-
                 if (cmd.equals("CX/ON")) {
                     telemetry_is_on = true;
                     startClock();
@@ -202,6 +205,11 @@ void processXBeeData() {
                     telemetry_is_on = false;
                 } else if (cmd.equals("CAL")) {
                     calibrateAltitude();
+                } else if (cmd.equals("BCN/OFF")) {
+                } else if (cmd.equals("BCN/ON")) {
+                } else if (cmd.equals("SIM/ACTIVATE")) {
+                } else if (cmd.equals("SIM/ENABLE")) {
+                } else if (cmd.equals("SIM/DISABLE")) {
                 }
 
                 // Handle MQTT command processing here
