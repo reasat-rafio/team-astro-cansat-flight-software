@@ -26,7 +26,7 @@ Servo servo3;
 
 const int PACKET_COUNT_ADDRESS = 0;
 const int MISSION_TIME_ADDRESS = sizeof(unsigned long);
-;
+const int INITIAL_ALTITUDE_ADDRESS = MISSION_TIME_ADDRESS + sizeof(unsigned long);
 
 bool telemetry_is_on = false;
 bool is_landed = false;
@@ -50,7 +50,7 @@ const float GRAVITY = 9.80665;                   // Standard gravity in m/s^2
 const float ACCELEROMETER_SENSITIVITY = 16384.0; // Sensitivity scale factor for the accelerometer
 const float GYROSCOPE_SENSITIVITY = 131.0;       // Sensitivity scale factor for the gyroscope
 
-float initial_altitude = 0.0; // Global variable to store initial altitude
+float initial_altitude = 0.0;
 
 struct TelemetryData {
     const char *team_id;
@@ -431,6 +431,13 @@ void initializeTelemetryData(TelemetryData &data) {
     data.gps_time = "10:11";
     data.cmd_echo = "CMD_ECHO";
 
+    // Read the initial_altitude from EEPROM
+    EEPROM.get(INITIAL_ALTITUDE_ADDRESS, initial_altitude);
+    // Check if the initial_altitude is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
+    if (initial_altitude == 0xFFFFFFFF) {
+        initial_altitude = 0;
+    }
+
     // Read the packet count from EEPROM
     EEPROM.get(PACKET_COUNT_ADDRESS, data.packet_count);
     // Check if the packet count is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
@@ -503,6 +510,7 @@ void calibrateAltitude(int numIterations) {
         delay(50);
     }
     initial_altitude = altitude;
+    EEPROM.put(INITIAL_ALTITUDE_ADDRESS, initial_altitude);
 }
 
 void calibratePacketCount() {
