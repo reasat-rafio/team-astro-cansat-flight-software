@@ -205,11 +205,25 @@ void processXBeeData() {
                     telemetry_is_on = false;
                 } else if (cmd.equals("CAL")) {
                     calibrateAltitude();
-                } else if (cmd.equals("BCN/OFF")) {
                 } else if (cmd.equals("BCN/ON")) {
+                } else if (cmd.equals("BCN/OFF")) {
                 } else if (cmd.equals("SIM/ACTIVATE")) {
+                    if (simulation_enable) {
+                        simulation_activate = true;
+                        xbeeSerial.print("<RSIM/ACTIVATE, SUCESS, SIMULATION ACTIVATED>");
+                        Serial.println("simulation_activate");
+                    } else {
+                        xbeeSerial.print("<RSIM/ACTIVATE, FAILED, SIMULATION IS NOT ENABLED>");
+                        Serial.println("simulation_activate failed because not enable");
+                    }
                 } else if (cmd.equals("SIM/ENABLE")) {
+                    simulation_enable = true;
+                    xbeeSerial.print("<RSIM/ENABLE, SUCCESS, SIMULATION ENABLED>");
+                    Serial.println("simulation_enable");
                 } else if (cmd.equals("SIM/DISABLE")) {
+                    Serial.println("simulation_disabled");
+                    simulation_enable = false;
+                    xbeeSerial.print("<RSIM/DISABLE, SUCESS, SIMULATION DISABLED>");
                 }
 
                 // Handle MQTT command processing here
@@ -359,14 +373,13 @@ void stopClock() {
 
 void publishSensorDataToXbee() {
     telemetryData.packet_count++;
-    String dataToSend = "<" + constructMessage() + ">";
+    String dataToSend = "<T" + constructMessage() + ">";
     xbeeSerial.print(dataToSend);
     Serial.println("Sent data to XBee: " + dataToSend);
 }
 
 void initializeTelemetryData(TelemetryData &data) {
     data.team_id = "2043";
-    data.mission_time = 0;
     data.packet_count = 0;
     data.mode = 'F';
     data.state = "LAUNCH_WAIT";

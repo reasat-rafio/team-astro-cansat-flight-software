@@ -6,12 +6,16 @@ SoftwareSerial xbeeSerial(16, 17); // RX, TX - Replace with the pins connected t
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
+// const char *SSID = "Orchie";
+// const char *PASSWORD = "meyel1912";
+// const char *MQTT_SERVER = "192.168.136.30";
 const char *SSID = "Room-1010";
 const char *PASSWORD = "room1010";
 const char *MQTT_SERVER = "192.168.0.187";
 const int MQTT_PORT = 1883; // Default MQTT port
 const char *MQTT_TELEMETRY_TOPIC = "telemetry/data";
 const char *MQTT_COMMANDS_TOPIC = "ground_station/commands";
+const char *MQTT_COMMANDS_RESPONSE_TOPIC = "ground_station/commands_response";
 
 void setup() {
     Serial.begin(9600);
@@ -41,18 +45,27 @@ void processXBeeData() {
         if (receivedData.indexOf('<') != -1 && receivedData.indexOf('>') != -1) {
             int startIdx = receivedData.indexOf('<') + 1; // Get the index of '<'
             int endIdx = receivedData.indexOf('>');       // Get the index of '>'
-
-            // Extract the data between '<' and '>'
             String extractedData = receivedData.substring(startIdx, endIdx);
 
-            // Do something with the extracted data (e.g., publish it to MQTT)
-            publishToMQTT(extractedData);
+            String modifiedExtractedData = extractedData.substring(1);
 
-            // Print the received data
-            Serial.println("Received data from XBee: " + extractedData);
+            // T means telemetry data
+            if (extractedData.charAt(0) == 'T') {
+                publishToMQTT(MQTT_TELEMETRY_TOPIC, modifiedExtractedData);
 
-            // Clear the receivedData for the next payload
-            receivedData = "";
+                // Print the received data
+                Serial.println("Received data from XBee: " + modifiedExtractedData);
+                receivedData = "";
+
+            } else if (extractedData.charAt(0) == 'R') {
+                publishToMQTT(MQTT_COMMANDS_RESPONSE_TOPIC, modifiedExtractedData);
+
+                // Print the received data
+                Serial.println("Received response data from XBee: " + modifiedExtractedData);
+
+                // Clear the receivedData for the next payload
+                receivedData = "";
+            }
         }
     }
 }
@@ -126,11 +139,11 @@ void callback(char *topic, byte *payload, unsigned int length) {
     }
 }
 
-void publishToMQTT(String receivedData) {
+void publishToMQTT(const char *topic, String receivedData) {
     // Construct the message payload
     String payload = String(receivedData);
 
-    if (mqttClient.publish(MQTT_TELEMETRY_TOPIC, payload.c_str())) {
+    if (mqttClient.publish(topic, payload.c_str())) {
         Serial.println("Publish successful");
     } else {
         Serial.println("Publish failed");
