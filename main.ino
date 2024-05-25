@@ -210,7 +210,8 @@ void processXBeeData() {
                 } else if (cmd.equals("SIM/ACTIVATE")) {
                     if (simulation_enable) {
                         simulation_activate = true;
-                        xbeeSerial.print("<RSIM/ACTIVATE, SUCESS, SIMULATION ACTIVATED>");
+                        telemetryData.mode = 'S';
+                        xbeeSerial.print("<RSIM/ACTIVATE, SUCCESS, SIMULATION ACTIVATED>");
                         Serial.println("simulation_activate");
                     } else {
                         xbeeSerial.print("<RSIM/ACTIVATE, FAILED, SIMULATION IS NOT ENABLED>");
@@ -223,7 +224,7 @@ void processXBeeData() {
                 } else if (cmd.equals("SIM/DISABLE")) {
                     Serial.println("simulation_disabled");
                     simulation_enable = false;
-                    xbeeSerial.print("<RSIM/DISABLE, SUCESS, SIMULATION DISABLED>");
+                    xbeeSerial.print("<RSIM/DISABLE, SUCCESS, SIMULATION DISABLED>");
                 }
 
                 // Handle MQTT command processing here
