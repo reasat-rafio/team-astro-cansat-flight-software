@@ -25,17 +25,14 @@ Servo servo2;
 Servo servo3;
 
 const int PACKET_COUNT_ADDRESS = 0;
+const int MISSION_TIME_ADDRESS = sizeof(unsigned long);
+;
 
 bool telemetry_is_on = false;
 bool is_landed = false;
 bool clock_running = false;
 bool simulation_enable = false;
 bool simulation_activate = false;
-
-unsigned long clock_start_time = 0;
-unsigned long clock_elapsed_time = 0;
-unsigned long clock_previous_millis = 0;        // Stores the last time the elapsed time was printed
-const unsigned long clock_print_interval = 100; // Interval at which to print elapsed time (in milliseconds)
 
 const float PITOT_TUBE_VALUE_INCREMENT = 0.52606034;
 const float GAS_CONSTANT_AIR = 287.058; // Specific gas constant for dry air in J/kg/K
@@ -57,8 +54,8 @@ float initial_altitude = 0.0; // Global variable to store initial altitude
 
 struct TelemetryData {
     const char *team_id;
-    int mission_time;
-    int packet_count;
+    unsigned long mission_time;
+    unsigned long packet_count;
     char mode;
     String state;
     float air_speed;
@@ -141,6 +138,7 @@ void loop() {
         previousMillis = currentMillis;
 
         if (telemetry_is_on && !is_landed) {
+            runClockAndSetMissionTime();
             readSensorData();
             publishSensorDataToXbee();
         };
@@ -148,7 +146,6 @@ void loop() {
 
     // Continuously process without delay
     processXBeeData();
-    runClockAndSetMissionTime();
 
     if (is_landed) {
         // Upon landing, the Cansat shall activate an audio beacon.
@@ -207,28 +204,31 @@ void processXBeeData() {
                 } else if (cmd.equals("CX/OFF")) {
                     telemetry_is_on = false;
                 } else if (cmd.equals("CAL")) {
-                    calibrateAltitude();
+                    calibrateAltitude(3);
                     calibratePacketCount();
+                    calibrateMissionTime();
+                    String msg = "<RCAL, SUCCESS, Calibrated altitude = " + String(initial_altitude) + ">";
+                    xbeeSerial.print(msg);
                 } else if (cmd.equals("BCN/ON")) {
                 } else if (cmd.equals("BCN/OFF")) {
                 } else if (cmd.equals("SIM/ACTIVATE")) {
                     if (simulation_enable) {
                         simulation_activate = true;
                         telemetryData.mode = 'S';
-                        xbeeSerial.print("<RSIM/ACTIVATE, SUCCESS, SIMULATION ACTIVATED>");
+                        xbeeSerial.print("<RSIM/ACTIVATE, SUCCESS, Simulation Activated>");
                         Serial.println("simulation_activate");
                     } else {
-                        xbeeSerial.print("<RSIM/ACTIVATE, FAILED, SIMULATION IS NOT ENABLED>");
+                        xbeeSerial.print("<RSIM/ACTIVATE, FAILED, Simulation is not enabled>");
                         Serial.println("simulation_activate failed because not enable");
                     }
                 } else if (cmd.equals("SIM/ENABLE")) {
                     simulation_enable = true;
-                    xbeeSerial.print("<RSIM/ENABLE, SUCCESS, SIMULATION ENABLED>");
+                    xbeeSerial.print("<RSIM/ENABLE, SUCCESS, Simulation enabled>");
                     Serial.println("simulation_enable");
                 } else if (cmd.equals("SIM/DISABLE")) {
                     Serial.println("simulation_disabled");
                     simulation_enable = false;
-                    xbeeSerial.print("<RSIM/DISABLE, SUCCESS, SIMULATION DISABLED>");
+                    xbeeSerial.print("<RSIM/DISABLE, SUCCESS, Simulation disabled>");
                 }
 
                 // Handle MQTT command processing here
@@ -347,32 +347,25 @@ void readVoltageSensor() {
 void startClock() {
     if (!clock_running) {
         clock_running = true;
-        clock_start_time = millis();
         Serial.println("Stopwatch started.");
     } else {
         Serial.println("Stopwatch is already running.");
     }
 }
-
-void runClockAndSetMissionTime() {
-    if (clock_running) {
-        unsigned long current_millis = millis();
-        if (current_millis - clock_previous_millis >= clock_print_interval) {
-            clock_previous_millis = current_millis;
-            telemetryData.mission_time = (clock_elapsed_time + current_millis - clock_start_time) / 1000.0;
-        }
-    }
-}
-
 void stopClock() {
     if (clock_running) {
-        clock_elapsed_time += millis() - clock_start_time;
         clock_running = false;
         Serial.print("Stopwatch stopped. Elapsed time: ");
-        Serial.print(clock_elapsed_time / 1000.0);
         Serial.println(" seconds");
     } else {
         Serial.println("Stopwatch is not running.");
+    }
+}
+
+void runClockAndSetMissionTime() {
+    if (clock_running) {
+        telemetryData.mission_time++;
+        EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
     }
 }
 
@@ -393,11 +386,20 @@ void initializeTelemetryData(TelemetryData &data) {
     data.pc_deployed = 'N';
     data.gps_time = "10:11";
     data.cmd_echo = "CMD_ECHO";
-    EEPROM.get(PACKET_COUNT_ADDRESS, data.packet_count);
 
+    // Read the packet count from EEPROM
+    EEPROM.get(PACKET_COUNT_ADDRESS, data.packet_count);
     // Check if the packet count is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
     if (data.packet_count == 0xFFFFFFFF) {
         data.packet_count = 0;
+    }
+
+    // Read the mission time from EEPROM
+    EEPROM.get(MISSION_TIME_ADDRESS, data.mission_time);
+
+    // Check if the mission time is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
+    if (data.mission_time == 0xFFFFFFFF) {
+        data.mission_time = 0;
     }
 }
 
@@ -450,14 +452,23 @@ float getClosestBaseValue(float measuredPressure) {
     return closestBaseValue;
 }
 
-void calibrateAltitude() {
-    // Set the initial altitude value
-    initial_altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+void calibrateAltitude(int numIterations) {
+    double altitude;
+    for (int i = 0; i < numIterations; ++i) {
+        altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+        delay(50);
+    }
+    initial_altitude = altitude;
 }
 
 void calibratePacketCount() {
     telemetryData.packet_count = 0;
     EEPROM.put(PACKET_COUNT_ADDRESS, telemetryData.packet_count);
+}
+
+void calibrateMissionTime() {
+    telemetryData.mission_time = 0;
+    EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
 }
 
 String constructMessage() {
