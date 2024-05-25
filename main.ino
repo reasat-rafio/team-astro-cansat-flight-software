@@ -1,5 +1,6 @@
 #include "ms4525do.h"
 #include <Adafruit_BMP3XX.h>
+#include <EEPROM.h>
 #include <Servo.h>
 #include <SoftwareSerial.h>
 #include <TinyGPS++.h>
@@ -22,6 +23,8 @@ Ultrasonic ultrasonic(ULTRASONIC_TRIGGER_PIN, ULTRASONIC_ECHO_PIN); // Initializ
 Servo servo1;
 Servo servo2;
 Servo servo3;
+
+const int PACKET_COUNT_ADDRESS = 0;
 
 bool telemetry_is_on = false;
 bool is_landed = false;
@@ -205,6 +208,7 @@ void processXBeeData() {
                     telemetry_is_on = false;
                 } else if (cmd.equals("CAL")) {
                     calibrateAltitude();
+                    calibratePacketCount();
                 } else if (cmd.equals("BCN/ON")) {
                 } else if (cmd.equals("BCN/OFF")) {
                 } else if (cmd.equals("SIM/ACTIVATE")) {
@@ -374,6 +378,8 @@ void stopClock() {
 
 void publishSensorDataToXbee() {
     telemetryData.packet_count++;
+    EEPROM.put(PACKET_COUNT_ADDRESS, telemetryData.packet_count);
+
     String dataToSend = "<T" + constructMessage() + ">";
     xbeeSerial.print(dataToSend);
     Serial.println("Sent data to XBee: " + dataToSend);
@@ -381,13 +387,18 @@ void publishSensorDataToXbee() {
 
 void initializeTelemetryData(TelemetryData &data) {
     data.team_id = "2043";
-    data.packet_count = 0;
     data.mode = 'F';
     data.state = "LAUNCH_WAIT";
     data.hs_deployed = 'N';
     data.pc_deployed = 'N';
     data.gps_time = "10:11";
     data.cmd_echo = "CMD_ECHO";
+    EEPROM.get(PACKET_COUNT_ADDRESS, data.packet_count);
+
+    // Check if the packet count is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
+    if (data.packet_count == 0xFFFFFFFF) {
+        data.packet_count = 0;
+    }
 }
 
 float generateRandomValue(float curr_value, float range) {
@@ -442,6 +453,11 @@ float getClosestBaseValue(float measuredPressure) {
 void calibrateAltitude() {
     // Set the initial altitude value
     initial_altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+}
+
+void calibratePacketCount() {
+    telemetryData.packet_count = 0;
+    EEPROM.put(PACKET_COUNT_ADDRESS, telemetryData.packet_count);
 }
 
 String constructMessage() {
