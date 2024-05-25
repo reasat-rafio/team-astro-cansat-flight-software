@@ -194,11 +194,18 @@ void processXBeeData() {
             // Check the command type
             if (extractedData.charAt(0) == 'C') {
                 String cmd = extractedData.substring(1);
+                int slashIndex = cmd.indexOf('/');
+                String beforeSlash = cmd.substring(0, slashIndex);
+                String afterSlash = cmd.substring(slashIndex + 1);
+
                 telemetryData.cmd_echo = cmd;
 
                 // Process MQTT command
                 Serial.println("Received MQTT command from XBee: " + extractedData);
-                if (cmd.equals("CX/ON")) {
+
+                if (beforeSlash.equals("PRESSURE")) {
+                    Serial.println("Pressure value: " + String(afterSlash));
+                } else if (cmd.equals("CX/ON")) {
                     telemetry_is_on = true;
                     startClock();
                 } else if (cmd.equals("CX/OFF")) {
@@ -210,7 +217,9 @@ void processXBeeData() {
                     String msg = "<RCAL, SUCCESS, Calibrated altitude = " + String(initial_altitude) + ">";
                     xbeeSerial.print(msg);
                 } else if (cmd.equals("BCN/ON")) {
+                    //
                 } else if (cmd.equals("BCN/OFF")) {
+                    //
                 } else if (cmd.equals("SIM/ACTIVATE")) {
                     if (simulation_enable) {
                         simulation_activate = true;
