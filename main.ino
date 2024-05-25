@@ -93,17 +93,17 @@ void setup() {
     servo3.attach(41);
 
     initializeTelemetryData(telemetryData);
-    // initializeBasePitotTubeValues();
+    initializeBasePitotTubeValues();
 
     delay(1000);
 
     // Configure the Pitot tube sensor with I2C address 0x28, on bus 0, with a -1 to +1 PSI range
-    // pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
-    // if (!pitotSensor.Begin()) {
-    //   Serial.println("Error communicating with sensor");
-    //   while (1) {
-    //   }
-    // }
+    pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
+    if (!pitotSensor.Begin()) {
+        Serial.println("Error communicating with sensor");
+        while (1) {
+        }
+    }
 
     // Initialize MPU6050
     Wire1.beginTransmission(MPU6050_ADDRESS);
@@ -159,7 +159,7 @@ void readSensorData() {
     readUltrasonicSensor();
     readTemperaturePressureAltitudeValues();
     readVoltageSensor();
-    // readPitotTubeVal();
+    readPitotTubeVal();
 }
 
 void readPitotTubeVal() {
