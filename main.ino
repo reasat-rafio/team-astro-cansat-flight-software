@@ -162,6 +162,15 @@ void readSensorData() {
     readPitotTubeVal();
 }
 
+void readSensorData(float sim_pressure) {
+    readAccelerometerData();
+    readGPSData();
+    readUltrasonicSensor();
+    readTemperaturePressureAltitudeValues(sim_pressure);
+    readVoltageSensor();
+    readPitotTubeVal();
+}
+
 void readPitotTubeVal() {
     if (pitotSensor.Read()) {
         float dynamicPressure = pitotSensor.pres_pa();
@@ -204,6 +213,11 @@ void processXBeeData() {
                 Serial.println("Received MQTT command from XBee: " + extractedData);
 
                 if (beforeSlash.equals("PRESSURE")) {
+                    float sim_pressure = afterSlash.toFloat();
+
+                    readSensorData(sim_pressure / 100);
+                    publishSensorDataToXbee();
+
                     Serial.println("Pressure value: " + String(afterSlash));
                 } else if (cmd.equals("CX/ON")) {
                     telemetry_is_on = true;
@@ -222,6 +236,7 @@ void processXBeeData() {
                     //
                 } else if (cmd.equals("SIM/ACTIVATE")) {
                     if (simulation_enable) {
+                        telemetry_is_on = false;
                         simulation_activate = true;
                         telemetryData.mode = 'S';
                         xbeeSerial.print("<RSIM/ACTIVATE, SUCCESS, Simulation Activated>");
@@ -299,6 +314,10 @@ void readAccelerometerData() {
     float ay_g = ay / ACCELEROMETER_SENSITIVITY;
     float az_g = az / ACCELEROMETER_SENSITIVITY;
 
+    float acceleration = sqrt(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
+
+    Serial.println("Acceleration " + String(acceleration));
+
     // Read gyroscope data
     Wire1.beginTransmission(MPU6050_ADDRESS);
     Wire1.write(0x47); // Starting register of gyroscope data
@@ -345,7 +364,23 @@ void readTemperaturePressureAltitudeValues() {
     telemetryData.temperature = bmp.temperature;
     telemetryData.pressure = bmp.pressure / 100.0;
     // Subtract initial altitude for calibration
-    telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA) - initial_altitude;
+    // telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA) - initial_altitude;
+    telemetryData.altitude = calculateAltitude(telemetryData.pressure) - initial_altitude;
+}
+
+void readTemperaturePressureAltitudeValues(float sim_pressure) {
+    // Read temperature, pressure, and altitude data from BMP390
+    if (!bmp.performReading()) {
+        Serial.println("Failed to perform reading :(");
+        return;
+    }
+
+    // Read temperature, pressure, and altitude values
+    telemetryData.temperature = bmp.temperature;
+    telemetryData.pressure = sim_pressure;
+    // Subtract initial altitude for calibration
+    // telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA) - initial_altitude;
+    telemetryData.altitude = calculateAltitude(telemetryData.pressure) - 633.00;
 }
 
 void readVoltageSensor() {
@@ -478,6 +513,13 @@ void calibratePacketCount() {
 void calibrateMissionTime() {
     telemetryData.mission_time = 0;
     EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
+}
+
+float calculateAltitude(float pressure) {
+    // Calculate the altitude
+    float h = (1 - pow((pressure / 1013.25), (1 / 5.255))) * 44330.77;
+
+    return h;
 }
 
 String constructMessage() {
