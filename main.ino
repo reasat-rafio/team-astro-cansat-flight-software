@@ -11,15 +11,12 @@
 #define BMP390_ADDRESS 0x77            // BMP390 I2C address
 #define GPS_RX_PIN 0                   // Connected to Teensy TX1 (pin 0)
 #define GPS_TX_PIN 1                   // Connected to Teensy RX1 (pin 1)
-#define ULTRASONIC_TRIGGER_PIN 2       // Ultrasonic Sensor Pin Definitions
-#define ULTRASONIC_ECHO_PIN 3          // Ultrasonic Sensor Pin Definitions
 #define SEALEVELPRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
 
 bfs::Ms4525do pitotSensor;
-SoftwareSerial xbeeSerial(7, 8);                                    // RX, TX
-TinyGPSPlus gps;                                                    // Initialize GPS
-Adafruit_BMP3XX bmp;                                                // Create an instance of the BMP3XX sensor
-Ultrasonic ultrasonic(ULTRASONIC_TRIGGER_PIN, ULTRASONIC_ECHO_PIN); // Initialize ultrasonic sensor
+SoftwareSerial xbeeSerial(7, 8); // RX, TX
+TinyGPSPlus gps;                 // Initialize GPS
+Adafruit_BMP3XX bmp;             // Create an instance of the BMP3XX sensor
 Servo servo1;
 Servo servo2;
 Servo servo3;
@@ -44,7 +41,8 @@ float pitotTubePressureDifferences[NUM_READINGS];
 
 const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
 bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
-int servo_1_position = 0, servo_2_position = 0, servo_3_position = 0;
+int servo_2_position = 0, servo_3_position = 0;
+// servo_1_position = 0,
 
 const float GRAVITY = 9.80665;                   // Standard gravity in m/s^2
 const float ACCELEROMETER_SENSITIVITY = 16384.0; // Sensitivity scale factor for the accelerometer
@@ -73,7 +71,6 @@ struct TelemetryData {
     float gps_longitude;
     float gps_altitude;
     int gps_sats;
-    long ultrasonic_distance;
     float voltage;
 };
 
@@ -88,7 +85,7 @@ void setup() {
     Wire2.setClock(400000);
     Serial.begin(9600);
     Serial1.begin(9600);
-    servo1.attach(22);
+    // servo1.attach(22);
     servo2.attach(23);
     servo3.attach(41);
 
@@ -156,7 +153,6 @@ void loop() {
 void readSensorData() {
     readAccelerometerData();
     readGPSData();
-    readUltrasonicSensor();
     readTemperaturePressureAltitudeValues();
     readVoltageSensor();
     readPitotTubeVal();
@@ -165,7 +161,6 @@ void readSensorData() {
 void readSensorData(float sim_pressure) {
     readAccelerometerData();
     readGPSData();
-    readUltrasonicSensor();
     readTemperaturePressureAltitudeValues(sim_pressure);
     readVoltageSensor();
     readPitotTubeVal();
@@ -272,11 +267,12 @@ void processXBeeData() {
 }
 
 void servoControl(String receivedServoData) {
-    if (receivedServoData.trim().equals("a")) {
-        for (servo_1_position = 90; servo_1_position <= 180; servo_1_position += 1) {
-            servo1.write(servo_1_position);
-        }
-    } else if (receivedServoData.trim().equals("s")) {
+    // if (receivedServoData.trim().equals("a")) {
+    //     for (servo_1_position = 90; servo_1_position <= 180; servo_1_position += 1) {
+    //         servo1.write(servo_1_position);
+    //     }
+    // }
+    if (receivedServoData.trim().equals("s")) {
         for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
             servo2.write(servo_2_position);
         }
@@ -284,11 +280,13 @@ void servoControl(String receivedServoData) {
         for (servo_3_position = 90; servo_3_position >= 0; servo_3_position -= 1) {
             servo3.write(servo_3_position);
         }
-    } else if (receivedServoData.trim().equals("1")) {
-        for (servo_1_position = 0; servo_1_position <= 90; servo_1_position += 1) {
-            servo1.write(servo_1_position);
-        }
-    } else if (receivedServoData.trim().equals("2")) {
+    }
+    // else if (receivedServoData.trim().equals("1")) {
+    //     for (servo_1_position = 0; servo_1_position <= 90; servo_1_position += 1) {
+    //         servo1.write(servo_1_position);
+    //     }
+    // }
+    else if (receivedServoData.trim().equals("2")) {
         for (servo_2_position = 0; servo_2_position <= 90; servo_2_position += 1) {
             servo2.write(servo_2_position);
         }
@@ -347,10 +345,6 @@ void readGPSData() {
             telemetryData.gps_sats = gps.satellites.value();
         }
     }
-}
-
-void readUltrasonicSensor() {
-    telemetryData.ultrasonic_distance = ultrasonic.read();
 }
 
 void readTemperaturePressureAltitudeValues() {
