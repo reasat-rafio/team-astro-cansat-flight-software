@@ -7,24 +7,23 @@
 #include <Ultrasonic.h>
 #include <Wire.h>
 
-#define MPU6050_ADDRESS 0x68           // MPU6050 I2C address
-#define BMP390_ADDRESS 0x77            // BMP390 I2C address
-#define GPS_RX_PIN 0                   // Connected to Teensy TX1 (pin 0)
-#define GPS_TX_PIN 1                   // Connected to Teensy RX1 (pin 1)
-#define SEALEVELPRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
+#define MPU6050_ADDRESS 0x68             // MPU6050 I2C address
+#define BMP390_ADDRESS 0x77              // BMP390 I2C address
+#define GPS_RX_PIN 0                     // Connected to Teensy TX1 (pin 0)
+#define GPS_TX_PIN 1                     // Connected to Teensy RX1 (pin 1)
+#define SEA_LEVEL_PRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
 // Define phase constants
 #define PRE_LAUNCH 0
 #define ASCENT 1
 #define DESCENT 2
-#define HEAT_SHIELD_DEPLOY 3
-#define PARACHUTE_DEPLOY 4
+#define PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD 3
 #define LANDED 5
 // Thresholds
-#define ASCENT_ALTITUDE_THRESHOLD 100         // Altitude increase threshold for ascent
-#define DESCENT_ALTITUDE_CHANGE 3             // Altitude decrease threshold for descent
-#define DESCENT_ALTITUDE_LIMIT 500            // Altitude limit for HEAT_SHIELD_DEPLOY
-#define HEAT_SHIELD_DEPLOY_ALTITUDE_LIMIT 200 // Altitude limit for parachute deploy
-#define LANDING_VELOCITY_THRESHOLD 1          // Velocity threshold to confirm landing
+#define ASCENT_ALTITUDE_THRESHOLD 10 // Altitude increase threshold for ascent
+#define DESCENT_ALTITUDE_CHANGE 3    // Altitude decrease threshold for descent
+#define DESCENT_ALTITUDE_LIMIT 100   // Altitude limit for HEAT_SHIELD_DEPLOY
+#define LANDING_VELOCITY_THRESHOLD 1 // Velocity threshold to confirm landing
+#define LANDING_ALTITUDE_CHANGE 1    // Altitude threshold to confirm landing
 
 bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8); // RX, TX
@@ -100,6 +99,7 @@ void setup() {
     Wire2.setClock(400000);
     Serial.begin(9600);
     Serial1.begin(9600);
+
     // servo1.attach(22);
     servo2.attach(23);
     servo3.attach(41);
@@ -166,52 +166,52 @@ void flightStatesLogic() {
 
     switch (telemetryData.state) {
     case PRE_LAUNCH:
-        if (altitudeChange > ASCENT_ALTITUDE_THRESHOLD) {
+        if (telemetryData.altitude > ASCENT_ALTITUDE_THRESHOLD) {
             telemetryData.state = ASCENT;
             Serial.println("Phase 1: Ascent");
         }
         break;
 
     case ASCENT:
-        if (altitudeChange < -DESCENT_ALTITUDE_CHANGE) {
+        if (altitudeChange < -DESCENT_ALTITUDE_CHANGE && telemetryData.altitude < 600) {
             telemetryData.state = DESCENT;
             Serial.println("Phase 2: Descent");
         }
         break;
 
     case DESCENT:
-        if (telemetryData.altitude < DESCENT_ALTITUDE_LIMIT) {
-            telemetryData.state = HEAT_SHIELD_DEPLOY;
-            Serial.println("Phase 3: HEAT_SHIELD_DEPLOY");
+        if (telemetryData.altitude <= DESCENT_ALTITUDE_LIMIT) {
+            telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD;
+            Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD");
         }
         break;
 
-    case HEAT_SHIELD_DEPLOY:
-        if (telemetryData.altitude < HEAT_SHIELD_DEPLOY_ALTITUDE_LIMIT) {
-            telemetryData.state = PARACHUTE_DEPLOY;
-            Serial.println("Phase 4: Parachute Deploy");
-        }
-        break;
-
-    case PARACHUTE_DEPLOY:
-        if (acceleration < LANDING_VELOCITY_THRESHOLD) {
+    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD:
+        if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
             is_landed = true;
         }
         if (is_landed) {
             telemetryData.state = LANDED;
-            Serial.println("Phase 5: Landed");
+            Serial.println("Phase 4: Landed");
         }
         break;
 
     case LANDED:
         Serial.println("Rocket has landed safely.");
-        // Execute landing procedures, e.g., save data, end telemetry
-        // saveData();
-        // turnOnBuzzer();
-        // endTelemetry();
+        saveData();
+        turnOnBuzzer();
+        endTelemetry();
         break;
     }
+
     previousAltitude = telemetryData.altitude;
+}
+
+void saveData() {}
+void turnOnBuzzer() {}
+void endTelemetry() {
+    telemetry_is_on = false;
+    stopClock();
 }
 
 void readSensorData() {
@@ -222,6 +222,7 @@ void readSensorData() {
     readPitotTubeVal();
 }
 
+// Simulation mode
 void readSensorData(float sim_pressure) {
     readAccelerometerData();
     readGPSData();
@@ -421,6 +422,7 @@ void readTemperaturePressureAltitudeValues() {
     telemetryData.altitude = calculateAltitude(telemetryData.pressure) - initial_altitude;
 }
 
+// Simulation mode
 void readTemperaturePressureAltitudeValues(float sim_pressure) {
     // Read temperature, pressure, and altitude data from BMP390
     if (!bmp.performReading()) {
@@ -561,7 +563,7 @@ float getClosestBaseValue(float measuredPressure) {
 void calibrateAltitude(int numIterations) {
     double altitude;
     for (int i = 0; i < numIterations; ++i) {
-        altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+        altitude = bmp.readAltitude(SEA_LEVEL_PRESSURE_HPA);
         delay(50);
     }
     initial_altitude = altitude;
