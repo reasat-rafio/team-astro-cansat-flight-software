@@ -12,6 +12,19 @@
 #define GPS_RX_PIN 0                   // Connected to Teensy TX1 (pin 0)
 #define GPS_TX_PIN 1                   // Connected to Teensy RX1 (pin 1)
 #define SEALEVELPRESSURE_HPA (1013.25) // Standard sea-level pressure in hPa
+// Define phase constants
+#define PRE_LAUNCH 0
+#define ASCENT 1
+#define DESCENT 2
+#define HEAT_SHIELD_DEPLOY 3
+#define PARACHUTE_DEPLOY 4
+#define LANDED 5
+// Thresholds
+#define ASCENT_ALTITUDE_THRESHOLD 100         // Altitude increase threshold for ascent
+#define DESCENT_ALTITUDE_CHANGE 3             // Altitude decrease threshold for descent
+#define DESCENT_ALTITUDE_LIMIT 500            // Altitude limit for HEAT_SHIELD_DEPLOY
+#define HEAT_SHIELD_DEPLOY_ALTITUDE_LIMIT 200 // Altitude limit for parachute deploy
+#define LANDING_VELOCITY_THRESHOLD 1          // Velocity threshold to confirm landing
 
 bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8); // RX, TX
@@ -49,13 +62,15 @@ const float ACCELEROMETER_SENSITIVITY = 16384.0; // Sensitivity scale factor for
 const float GYROSCOPE_SENSITIVITY = 131.0;       // Sensitivity scale factor for the gyroscope
 
 float initial_altitude = 0.0;
+float acceleration = 0.0;
+float previousAltitude = 0.0;
 
 struct TelemetryData {
     const char *team_id;
     unsigned long mission_time;
     unsigned long packet_count;
     char mode;
-    String state;
+    int state;
     float air_speed;
     char hs_deployed;
     char pc_deployed;
@@ -143,11 +158,60 @@ void loop() {
 
     // Continuously process without delay
     processXBeeData();
+    flightStatesLogic();
+}
 
-    if (is_landed) {
-        // Upon landing, the Cansat shall activate an audio beacon.
-        stopClock();
+void flightStatesLogic() {
+    float altitudeChange = telemetryData.altitude - previousAltitude;
+
+    switch (telemetryData.state) {
+    case PRE_LAUNCH:
+        if (altitudeChange > ASCENT_ALTITUDE_THRESHOLD) {
+            telemetryData.state = ASCENT;
+            Serial.println("Phase 1: Ascent");
+        }
+        break;
+
+    case ASCENT:
+        if (altitudeChange < -DESCENT_ALTITUDE_CHANGE) {
+            telemetryData.state = DESCENT;
+            Serial.println("Phase 2: Descent");
+        }
+        break;
+
+    case DESCENT:
+        if (telemetryData.altitude < DESCENT_ALTITUDE_LIMIT) {
+            telemetryData.state = HEAT_SHIELD_DEPLOY;
+            Serial.println("Phase 3: HEAT_SHIELD_DEPLOY");
+        }
+        break;
+
+    case HEAT_SHIELD_DEPLOY:
+        if (telemetryData.altitude < HEAT_SHIELD_DEPLOY_ALTITUDE_LIMIT) {
+            telemetryData.state = PARACHUTE_DEPLOY;
+            Serial.println("Phase 4: Parachute Deploy");
+        }
+        break;
+
+    case PARACHUTE_DEPLOY:
+        if (acceleration < LANDING_VELOCITY_THRESHOLD) {
+            is_landed = true;
+        }
+        if (is_landed) {
+            telemetryData.state = LANDED;
+            Serial.println("Phase 5: Landed");
+        }
+        break;
+
+    case LANDED:
+        Serial.println("Rocket has landed safely.");
+        // Execute landing procedures, e.g., save data, end telemetry
+        // saveData();
+        // turnOnBuzzer();
+        // endTelemetry();
+        break;
     }
+    previousAltitude = telemetryData.altitude;
 }
 
 void readSensorData() {
@@ -312,10 +376,6 @@ void readAccelerometerData() {
     float ay_g = ay / ACCELEROMETER_SENSITIVITY;
     float az_g = az / ACCELEROMETER_SENSITIVITY;
 
-    float acceleration = sqrt(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
-
-    Serial.println("Acceleration " + String(acceleration));
-
     // Read gyroscope data
     Wire1.beginTransmission(MPU6050_ADDRESS);
     Wire1.write(0x47); // Starting register of gyroscope data
@@ -331,6 +391,7 @@ void readAccelerometerData() {
     float TILT_Y = atan2(-ay_g, sqrt(ax_g * ax_g + az_g * az_g)) * 180.0 / M_PI;
     float ROT_Z = gz_dps;
 
+    acceleration = sqrt(sq(ax) + sq(ay) + sq(az)) / 16384.0; // Convert to 'g'
     telemetryData.accelerometer_x = TILT_X;
     telemetryData.accelerometer_y = TILT_Y;
     telemetryData.gyroscope_z = ROT_Z;
@@ -357,8 +418,6 @@ void readTemperaturePressureAltitudeValues() {
     // Read temperature, pressure, and altitude values
     telemetryData.temperature = bmp.temperature;
     telemetryData.pressure = bmp.pressure / 100.0;
-    // Subtract initial altitude for calibration
-    // telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA) - initial_altitude;
     telemetryData.altitude = calculateAltitude(telemetryData.pressure) - initial_altitude;
 }
 
@@ -372,8 +431,6 @@ void readTemperaturePressureAltitudeValues(float sim_pressure) {
     // Read temperature, pressure, and altitude values
     telemetryData.temperature = bmp.temperature;
     telemetryData.pressure = sim_pressure;
-    // Subtract initial altitude for calibration
-    // telemetryData.altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA) - initial_altitude;
     telemetryData.altitude = calculateAltitude(telemetryData.pressure) - 633.00;
 }
 
@@ -419,7 +476,7 @@ void publishSensorDataToXbee() {
 void initializeTelemetryData(TelemetryData &data) {
     data.team_id = "2043";
     data.mode = 'F';
-    data.state = "LAUNCH_WAIT";
+    // data.state = PRE_LAUNCH;
     data.hs_deployed = 'N';
     data.pc_deployed = 'N';
     data.gps_time = "10:11";
@@ -427,9 +484,13 @@ void initializeTelemetryData(TelemetryData &data) {
 
     // Read the initial_altitude from EEPROM
     EEPROM.get(INITIAL_ALTITUDE_ADDRESS, initial_altitude);
+
     // Check if the initial_altitude is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
     if (initial_altitude == 0xFFFFFFFF) {
         initial_altitude = 0;
+        previousAltitude = 0;
+    } else {
+        previousAltitude = initial_altitude;
     }
 
     // Read the packet count from EEPROM
@@ -504,6 +565,7 @@ void calibrateAltitude(int numIterations) {
         delay(50);
     }
     initial_altitude = altitude;
+    previousAltitude = altitude;
     EEPROM.put(INITIAL_ALTITUDE_ADDRESS, initial_altitude);
 }
 

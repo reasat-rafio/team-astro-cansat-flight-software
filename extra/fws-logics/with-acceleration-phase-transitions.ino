@@ -23,7 +23,7 @@ MPU6050 mpu;
 #define LANDING_VELOCITY_THRESHOLD 1  // Velocity threshold to confirm landing
 
 // Variables
-int phase = PRE_LAUNCH;
+int state = PRE_LAUNCH;
 float previousAltitude;
 bool isLanded = false;
 
@@ -62,31 +62,31 @@ void loop() {
     mpu.getAcceleration(&ax, &ay, &az);
     float acceleration = sqrt(sq(ax) + sq(ay) + sq(az)) / 16384.0; // Convert to 'g'
 
-    switch (phase) {
+    switch (state) {
     case PRE_LAUNCH:
         if (altitudeChange > ASCENT_ALTITUDE_THRESHOLD) {
-            phase = ASCENT;
+            state = ASCENT;
             Serial.println("Phase 1: Ascent");
         }
         break;
 
     case ASCENT:
         if (altitudeChange < -DESCENT_ALTITUDE_CHANGE) {
-            phase = DESCENT;
+            state = DESCENT;
             Serial.println("Phase 2: Descent");
         }
         break;
 
     case DESCENT:
         if (currentAltitude < DESCENT_ALTITUDE_LIMIT) {
-            phase = SEPARATION;
+            state = SEPARATION;
             Serial.println("Phase 3: Separation");
         }
         break;
 
     case SEPARATION:
         if (currentAltitude < SEPARATION_ALTITUDE_LIMIT) {
-            phase = PARACHUTE_DEPLOY;
+            state = PARACHUTE_DEPLOY;
             Serial.println("Phase 4: Parachute Deploy");
         }
         break;
@@ -96,7 +96,7 @@ void loop() {
             isLanded = true;
         }
         if (isLanded) {
-            phase = LANDED;
+            state = LANDED;
             Serial.println("Phase 5: Landed");
         }
         break;

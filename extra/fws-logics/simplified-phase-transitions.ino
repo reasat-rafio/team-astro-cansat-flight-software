@@ -21,7 +21,7 @@ Adafruit_BMP280 bmp;
 #define LANDING_TIME_THRESHOLD 5      // Time threshold to confirm landing in seconds
 
 // Variables
-int phase = PRE_LAUNCH;
+int state = PRE_LAUNCH;
 unsigned long lastTime;
 float previousAltitude;
 bool isLanded = false;
@@ -50,31 +50,31 @@ void loop() {
     float currentAltitude = bmp.readAltitude(1013.25);
     float altitudeChange = currentAltitude - previousAltitude;
 
-    switch (phase) {
+    switch (state) {
     case PRE_LAUNCH:
         if (altitudeChange > ASCENT_ALTITUDE_THRESHOLD && (currentTime - lastTime) <= 3000) {
-            phase = ASCENT;
+            state = ASCENT;
             lastTime = currentTime;
         }
         break;
 
     case ASCENT:
         if (altitudeChange < -DESCENT_ALTITUDE_CHANGE && (currentTime - lastTime) <= 3000) {
-            phase = DESCENT;
+            state = DESCENT;
             lastTime = currentTime;
         }
         break;
 
     case DESCENT:
         if (currentAltitude < DESCENT_ALTITUDE_LIMIT) {
-            phase = SEPARATION;
+            state = SEPARATION;
             lastTime = currentTime;
         }
         break;
 
     case SEPARATION:
         if (currentAltitude < SEPARATION_ALTITUDE_LIMIT) {
-            phase = PARACHUTE_DEPLOY;
+            state = PARACHUTE_DEPLOY;
             lastTime = currentTime;
         }
         break;
@@ -84,7 +84,7 @@ void loop() {
             isLanded = true;
         }
         if (isLanded) {
-            phase = LANDED;
+            state = LANDED;
         }
         break;
 
