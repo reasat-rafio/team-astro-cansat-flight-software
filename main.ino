@@ -157,8 +157,8 @@ void loop() {
     }
 
     // Continuously process without delay
-    processXBeeData();
     flightStatesLogic();
+    processReceivedXBeeData();
 }
 
 void flightStatesLogic() {
@@ -245,7 +245,7 @@ void readPitotTubeVal() {
     }
 }
 
-void processXBeeData() {
+void processReceivedXBeeData() {
     static String receivedData = ""; // Define a single buffer for received data
 
     while (xbeeSerial.available()) {

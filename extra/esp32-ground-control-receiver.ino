@@ -30,11 +30,11 @@ void loop() {
         reconnect();
     }
     mqttClient.loop();
-    processXBeeData();
+    processReceivedXBeeData();
     processXbeeServoControl();
 }
 
-void processXBeeData() {
+void processReceivedXBeeData() {
     static String receivedData = "";
 
     while (xbeeSerial.available()) {
