@@ -21,7 +21,7 @@
 // Thresholds
 #define ASCENT_ALTITUDE_THRESHOLD 10 // Altitude increase threshold for ascent
 #define DESCENT_ALTITUDE_CHANGE 3    // Altitude decrease threshold for descent
-#define DESCENT_ALTITUDE_LIMIT 100   // Altitude limit for HEAT_SHIELD_DEPLOY
+#define DESCENT_ALTITUDE_LIMIT 110   // Altitude limit for HEAT_SHIELD_DEPLOY
 #define LANDING_VELOCITY_THRESHOLD 1 // Velocity threshold to confirm landing
 #define LANDING_ALTITUDE_CHANGE 1    // Altitude threshold to confirm landing
 
@@ -141,11 +141,14 @@ void setup() {
 }
 
 unsigned long previousMillis = 0;
-const long interval = 1000; // in milliseconds
+unsigned long previousFlightStatesMillis = 0;
+const long interval = 1000;
+const long flightStatesInterval = 100;
+
 void loop() {
-    // Get the current time
     unsigned long currentMillis = millis();
 
+    // Check if it's time to run the 1000 ms interval code
     if (currentMillis - previousMillis >= interval) {
         previousMillis = currentMillis;
 
@@ -153,15 +156,22 @@ void loop() {
             runClockAndSetMissionTime();
             readSensorData();
             publishSensorDataToXbee();
-        };
+        }
+    }
+
+    if (currentMillis - previousFlightStatesMillis >= flightStatesInterval) {
+        previousFlightStatesMillis = currentMillis;
+
+        // Run flight states logic every 100 ms
+        flightStatesLogic();
     }
 
     // Continuously process without delay
-    flightStatesLogic();
     processReceivedXBeeData();
 }
 
 void flightStatesLogic() {
+    static int descentConditionCounter = 0;
     float altitudeChange = telemetryData.altitude - previousAltitude;
 
     switch (telemetryData.state) {
@@ -173,9 +183,16 @@ void flightStatesLogic() {
         break;
 
     case ASCENT:
-        if (altitudeChange < -DESCENT_ALTITUDE_CHANGE && telemetryData.altitude < 600) {
+        if (altitudeChange < -DESCENT_ALTITUDE_CHANGE && telemetryData.altitude < 650) {
+            descentConditionCounter++;
+        } else {
+            descentConditionCounter = 0;
+        }
+
+        if (descentConditionCounter >= 10) {
             telemetryData.state = DESCENT;
             Serial.println("Phase 2: Descent");
+            descentConditionCounter = 0;
         }
         break;
 
