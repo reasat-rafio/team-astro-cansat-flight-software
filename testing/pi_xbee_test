@@ -1,0 +1,61 @@
+import paho.mqtt.client as mqtt
+import serial
+
+# Replace with your actual values
+broker_address = "localhost"
+broker_port = 1883
+telemetry_topic = "xbee/telemetry"
+serial_port = '/dev/ttyUSB0'  # Replace with your XBee's serial port
+baud_rate = 9600  # Replace with your XBee's baud rate
+payload_size = 16  # Define expected data packet size
+
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("Connected to MQTT Broker!")
+    else:
+        print(f"Failed to connect, return code {rc}")
+
+def main():
+    try:
+        ser = serial.Serial(serial_port, baud_rate)
+        print(f"Connected to XBee on serial port: {serial_port}")
+    except serial.SerialException as e:
+        print(f"Error opening serial port: {e}")
+        return
+
+    received_data = ""
+
+    # Create MQTT client
+    client = mqtt.Client()
+    client.on_connect = on_connect
+
+    # Connect to the broker
+    client.connect(broker_address, broker_port)
+    client.loop_start()  # Start the MQTT loop in a background thread
+
+    try:
+        while True:
+            # Read incoming characters from XBee
+            if ser.in_waiting > 0:
+                character = ser.read().decode()  # Decode byte to string
+                received_data += character
+
+            # Check if a complete payload is received
+            if len(received_data) == payload_size:
+                print(f"Received data from XBee: {received_data}")
+
+                # Publish telemetry data to the broker
+                client.publish(telemetry_topic, received_data)
+                received_data = ""  # Reset for the next payload
+
+    except KeyboardInterrupt:
+        print("Terminating the program...")
+
+    finally:
+        client.loop_stop()  # Stop the MQTT loop
+        client.disconnect()
+        ser.close()
+
+if __name__ == "__main__":
+    main()
+
