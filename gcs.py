@@ -3,8 +3,6 @@ import serial
 import time
 
 # Configuration parameters
-SSID = "Room-1010"
-PASSWORD = "room1010"
 MQTT_SERVER = "localhost"
 MQTT_PORT = 1883
 MQTT_TELEMETRY_TOPIC = "telemetry/data"
