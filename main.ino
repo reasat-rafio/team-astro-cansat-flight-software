@@ -20,7 +20,7 @@
 #define LANDED 5
 // Thresholds
 #define ASCENT_ALTITUDE_THRESHOLD 10 // Altitude increase threshold for ascent
-#define DESCENT_ALTITUDE_CHANGE 3    // Altitude decrease threshold for descent
+#define DESCENT_ALTITUDE_CHANGE 0    // Altitude decrease threshold for descent
 #define DESCENT_ALTITUDE_LIMIT 110   // Altitude limit for HEAT_SHIELD_DEPLOY
 #define LANDING_VELOCITY_THRESHOLD 1 // Velocity threshold to confirm landing
 #define LANDING_ALTITUDE_CHANGE 1    // Altitude threshold to confirm landing
@@ -144,7 +144,6 @@ unsigned long previousMillis = 0;
 unsigned long previousFlightStatesMillis = 0;
 const long interval = 1000;
 const long flightStatesInterval = 200;
-
 void loop() {
     unsigned long currentMillis = millis();
 
@@ -183,13 +182,15 @@ void flightStatesLogic() {
         break;
 
     case ASCENT:
-        if (altitudeChange < -DESCENT_ALTITUDE_CHANGE && telemetryData.altitude < 650) {
+        Serial.println("altitudeChange " + String(altitudeChange) + " " + String(telemetryData.altitude) + " " + descentConditionCounter);
+
+        if (altitudeChange <= DESCENT_ALTITUDE_CHANGE && telemetryData.altitude < 650) {
             descentConditionCounter++;
         } else {
             descentConditionCounter = 0;
         }
 
-        if (descentConditionCounter >= 10) {
+        if (descentConditionCounter > 10) {
             telemetryData.state = DESCENT;
             Serial.println("Phase 2: Descent");
             descentConditionCounter = 0;
@@ -204,9 +205,13 @@ void flightStatesLogic() {
         break;
 
     case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
-        if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
+        // if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
+        //     is_landed = true;
+        // }
+        if (telemetryData.altitude <= 10) {
             is_landed = true;
         }
+
         if (is_landed) {
             telemetryData.state = LANDED;
             Serial.println("Phase 4: Landed");
@@ -279,66 +284,9 @@ void processReceivedXBeeData() {
 
             // Check the command type
             if (extractedData.charAt(0) == 'C') {
-                String cmd = extractedData.substring(1);
-                int slashIndex = cmd.indexOf('/');
-                String beforeSlash = cmd.substring(0, slashIndex);
-                String afterSlash = cmd.substring(slashIndex + 1);
-
-                telemetryData.cmd_echo = cmd;
-
-                // Process MQTT command
-                Serial.println("Received MQTT command from XBee: " + extractedData);
-
-                if (beforeSlash.equals("PRESSURE")) {
-                    float sim_pressure = afterSlash.toFloat();
-
-                    readSensorData(sim_pressure / 100);
-                    publishSensorDataToXbee();
-
-                    Serial.println("Pressure value: " + String(afterSlash));
-                } else if (cmd.equals("CX/ON")) {
-                    telemetry_is_on = true;
-                    startClock();
-                } else if (cmd.equals("CX/OFF")) {
-                    telemetry_is_on = false;
-                } else if (cmd.equals("CAL")) {
-                    calibrateAltitude(3);
-                    calibratePacketCount();
-                    calibrateMissionTime();
-                    String msg = "<RCAL, SUCCESS, Calibrated altitude = " + String(initial_altitude) + ">";
-                    xbeeSerial.print(msg);
-                } else if (cmd.equals("BCN/ON")) {
-                    //
-                } else if (cmd.equals("BCN/OFF")) {
-                    //
-                } else if (cmd.equals("SIM/ACTIVATE")) {
-                    if (simulation_enable) {
-                        telemetry_is_on = false;
-                        simulation_activate = true;
-                        telemetryData.mode = 'S';
-                        xbeeSerial.print("<RSIM/ACTIVATE, SUCCESS, Simulation Activated>");
-                        Serial.println("simulation_activate");
-                    } else {
-                        xbeeSerial.print("<RSIM/ACTIVATE, FAILED, Simulation is not enabled>");
-                        Serial.println("simulation_activate failed because not enable");
-                    }
-                } else if (cmd.equals("SIM/ENABLE")) {
-                    simulation_enable = true;
-                    xbeeSerial.print("<RSIM/ENABLE, SUCCESS, Simulation enabled>");
-                    Serial.println("simulation_enable");
-                } else if (cmd.equals("SIM/DISABLE")) {
-                    Serial.println("simulation_disabled");
-                    simulation_enable = false;
-                    xbeeSerial.print("<RSIM/DISABLE, SUCCESS, Simulation disabled>");
-                }
-
-                // Handle MQTT command processing here
+                handleMQTTCommand(extractedData.substring(1));
             } else if (extractedData.charAt(0) == 'S') {
-                // Process servo command
-                Serial.println("Rleeceived servo command from XBee: " + extractedData);
-
-                servoControl(extractedData.substring(1));
-                // Handle servo command processing here
+                handleServoCommand(extractedData.substring(1));
             } else {
                 Serial.println("Unknown command received: " + extractedData);
             }
@@ -348,7 +296,60 @@ void processReceivedXBeeData() {
     }
 }
 
-void servoControl(String receivedServoData) {
+void handleMQTTCommand(String cmd) {
+    int slashIndex = cmd.indexOf('/');
+    String beforeSlash = cmd.substring(0, slashIndex);
+    String afterSlash = cmd.substring(slashIndex + 1);
+
+    telemetryData.cmd_echo = cmd;
+
+    Serial.println("Received MQTT command from XBee: " + cmd);
+
+    if (beforeSlash.equals("PRESSURE")) {
+        float sim_pressure = afterSlash.toFloat();
+        readSensorData(sim_pressure / 100);
+        publishSensorDataToXbee();
+        Serial.println("Pressure value: " + String(afterSlash));
+    } else if (cmd.equals("CX/ON")) {
+        telemetry_is_on = true;
+        startClock();
+    } else if (cmd.equals("CX/OFF")) {
+        telemetry_is_on = false;
+    } else if (cmd.equals("CAL")) {
+        calibrateAltitude(3);
+        calibratePacketCount();
+        calibrateMissionTime();
+        String msg = "<RCAL, SUCCESS, Calibrated altitude = " + String(initial_altitude) + ">";
+        xbeeSerial.print(msg);
+    } else if (cmd.equals("BCN/ON")) {
+        // Add code for BCN/ON command
+    } else if (cmd.equals("BCN/OFF")) {
+        // Add code for BCN/OFF command
+    } else if (cmd.equals("SIM/ACTIVATE")) {
+        if (simulation_enable) {
+            telemetry_is_on = false;
+            simulation_activate = true;
+            telemetryData.mode = 'S';
+            xbeeSerial.print("<RSIM/ACTIVATE, SUCCESS, Simulation Activated>");
+            Serial.println("simulation_activate");
+        } else {
+            xbeeSerial.print("<RSIM/ACTIVATE, FAILED, Simulation is not enabled>");
+            Serial.println("simulation_activate failed because not enabled");
+        }
+    } else if (cmd.equals("SIM/ENABLE")) {
+        simulation_enable = true;
+        xbeeSerial.print("<RSIM/ENABLE, SUCCESS, Simulation enabled>");
+        Serial.println("simulation_enable");
+    } else if (cmd.equals("SIM/DISABLE")) {
+        simulation_enable = false;
+        xbeeSerial.print("<RSIM/DISABLE, SUCCESS, Simulation disabled>");
+        Serial.println("simulation_disabled");
+    }
+}
+
+void handleServoCommand(String receivedServoData) {
+    Serial.println("Received servo command from XBee: " + receivedServoData);
+
     // if (receivedServoData.trim().equals("a")) {
     //     for (servo_1_position = 90; servo_1_position <= 180; servo_1_position += 1) {
     //         servo1.write(servo_1_position);
@@ -489,7 +490,7 @@ void publishSensorDataToXbee() {
 
     String dataToSend = "<T" + constructMessage() + ">";
     xbeeSerial.print(dataToSend);
-    Serial.println("Sent data to XBee: " + dataToSend);
+    // Serial.println("Sent data to XBee: " + dataToSend);
 }
 
 void initializeTelemetryData(TelemetryData &data) {
