@@ -20,7 +20,7 @@
 #define LANDED 5
 // Thresholds
 #define ASCENT_ALTITUDE_THRESHOLD 10 // Altitude increase threshold for ascent
-#define DESCENT_ALTITUDE_CHANGE 0    // Altitude decrease threshold for descent
+#define DESCENT_ALTITUDE_CHANGE -3   // Altitude decrease threshold for descent
 #define DESCENT_ALTITUDE_LIMIT 110   // Altitude limit for HEAT_SHIELD_DEPLOY
 #define LANDING_VELOCITY_THRESHOLD 1 // Velocity threshold to confirm landing
 #define LANDING_ALTITUDE_CHANGE 1    // Altitude threshold to confirm landing
@@ -158,12 +158,12 @@ void loop() {
         }
     }
 
-    if (currentMillis - previousFlightStatesMillis >= flightStatesInterval) {
-        previousFlightStatesMillis = currentMillis;
+    // if (currentMillis - previousFlightStatesMillis >= flightStatesInterval) {
+    //     previousFlightStatesMillis = currentMillis;
 
-        // Run flight states logic every 100 ms
-        flightStatesLogic();
-    }
+    //     // Run flight states logic every 100 ms
+    //     flightStatesLogic();
+    // }
 
     // Continuously process without delay
     processReceivedXBeeData();
@@ -182,15 +182,13 @@ void flightStatesLogic() {
         break;
 
     case ASCENT:
-        Serial.println("altitudeChange " + String(altitudeChange) + " " + String(telemetryData.altitude) + " " + descentConditionCounter);
-
         if (altitudeChange <= DESCENT_ALTITUDE_CHANGE && telemetryData.altitude < 650) {
             descentConditionCounter++;
         } else {
             descentConditionCounter = 0;
         }
 
-        if (descentConditionCounter > 10) {
+        if (descentConditionCounter > 2) {
             telemetryData.state = DESCENT;
             Serial.println("Phase 2: Descent");
             descentConditionCounter = 0;
@@ -308,6 +306,7 @@ void handleMQTTCommand(String cmd) {
     if (beforeSlash.equals("PRESSURE")) {
         float sim_pressure = afterSlash.toFloat();
         readSensorData(sim_pressure / 100);
+        flightStatesLogic();
         publishSensorDataToXbee();
         Serial.println("Pressure value: " + String(afterSlash));
     } else if (cmd.equals("CX/ON")) {
