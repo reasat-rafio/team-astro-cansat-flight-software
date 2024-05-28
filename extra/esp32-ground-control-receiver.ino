@@ -9,9 +9,9 @@ PubSubClient mqttClient(espClient);
 // const char *SSID = "Orchie";
 // const char *PASSWORD = "meyel1912";
 // const char *MQTT_SERVER = "192.168.136.30";
-const char *SSID = "Room-1010";
-const char *PASSWORD = "room1010";
-const char *MQTT_SERVER = "192.168.0.187";
+const char *SSID = "Orchie";
+const char *PASSWORD = "meyel1912";
+const char *MQTT_SERVER = "192.168.154.88";
 const int MQTT_PORT = 1883; // Default MQTT port
 const char *MQTT_TELEMETRY_TOPIC = "telemetry/data";
 const char *MQTT_COMMANDS_TOPIC = "ground_station/commands";
