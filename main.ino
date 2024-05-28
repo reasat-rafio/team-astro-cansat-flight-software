@@ -16,7 +16,7 @@
 #define PRE_LAUNCH 0
 #define ASCENT 1
 #define DESCENT 2
-#define PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD 3
+#define PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE 3
 #define LANDED 5
 // Thresholds
 #define ASCENT_ALTITUDE_THRESHOLD 10 // Altitude increase threshold for ascent
@@ -143,7 +143,7 @@ void setup() {
 unsigned long previousMillis = 0;
 unsigned long previousFlightStatesMillis = 0;
 const long interval = 1000;
-const long flightStatesInterval = 100;
+const long flightStatesInterval = 200;
 
 void loop() {
     unsigned long currentMillis = millis();
@@ -198,12 +198,12 @@ void flightStatesLogic() {
 
     case DESCENT:
         if (telemetryData.altitude <= DESCENT_ALTITUDE_LIMIT) {
-            telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD;
-            Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD");
+            telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE;
+            Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
         }
         break;
 
-    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_DISCARD:
+    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
         if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
             is_landed = true;
         }
@@ -528,26 +528,6 @@ void initializeTelemetryData(TelemetryData &data) {
     }
 }
 
-float generateRandomValue(float curr_value, float range) {
-    // Generate a random float between -range and range
-    float offset = ((float)rand() / RAND_MAX) * (2 * range) - range;
-    return curr_value + offset;
-}
-
-int generateRandomSats(int curr_value, int range) {
-    // Generate a random integer between -range and range
-    int offset = rand() % (2 * range) - range;
-    return curr_value + offset;
-}
-
-unsigned long generateRandomDigit(int digit) {
-    unsigned long randomNumber = 0;
-    for (int i = 0; i < digit; i++) {
-        randomNumber = (randomNumber * 10) + random(0, 10); // Generates random number from 0 to 9
-    }
-    return randomNumber;
-}
-
 void initializeBasePitotTubeValues() {
     // Initialize the array with base values
     int middleIndex = NUM_READINGS / 2;
@@ -605,13 +585,30 @@ float calculateAltitude(float pressure) {
     return h;
 }
 
+String getStateName(int state) {
+    switch (state) {
+    case PRE_LAUNCH:
+        return "PRE_LAUNCH";
+    case ASCENT:
+        return "ASCENT";
+    case DESCENT:
+        return "DESCENT";
+    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
+        return "PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE";
+    case LANDED:
+        return "LANDED";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 String constructMessage() {
     // Construct message using telemetryData struct
     String message = String(telemetryData.team_id) + ", " +
                      String(telemetryData.mission_time) + ", " +
                      String(telemetryData.packet_count) + ", " +
                      String(telemetryData.mode) + ", " +
-                     String(telemetryData.state) + ", " +
+                     getStateName(telemetryData.state) + ", " +
                      String(telemetryData.altitude) + ", " +
                      String(telemetryData.air_speed) + ", " +
                      String(telemetryData.hs_deployed) + ", " +
@@ -621,8 +618,8 @@ String constructMessage() {
                      String(telemetryData.pressure) + ", " +
                      String(telemetryData.gps_time) + ", " +
                      String(telemetryData.gps_altitude) + ", " +
-                     String(telemetryData.gps_latitude) + generateRandomDigit(4) + ", " +
-                     String(telemetryData.gps_longitude) + generateRandomDigit(4) + ", " +
+                     String(telemetryData.gps_latitude) + ", " +
+                     String(telemetryData.gps_longitude) + ", " +
                      String(telemetryData.gps_sats) + ", " +
                      String(telemetryData.accelerometer_x) + ", " +
                      String(telemetryData.accelerometer_y) + ", " +
