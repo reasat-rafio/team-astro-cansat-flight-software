@@ -158,11 +158,13 @@ void loop() {
         }
     }
 
+    // Run flight states logic every 200 ms
     // if (currentMillis - previousFlightStatesMillis >= flightStatesInterval) {
     //     previousFlightStatesMillis = currentMillis;
 
-    //     // Run flight states logic every 100 ms
-    //     flightStatesLogic();
+    //     if(!simulation_activate) {
+    //       flightStatesLogic();
+    //     }
     // }
 
     // Continuously process without delay
@@ -170,6 +172,69 @@ void loop() {
 }
 
 void flightStatesLogic() {
+    static int descentConditionCounter = 0;
+    float currentAltitude = calculateAltitude(bmp.pressure / 100.0) - initial_altitude;
+    float altitudeChange = currentAltitude - previousAltitude;
+
+    switch (telemetryData.state) {
+    case PRE_LAUNCH:
+        if (currentAltitude > ASCENT_ALTITUDE_THRESHOLD) {
+            telemetryData.state = ASCENT;
+            Serial.println("Phase 1: Ascent");
+        }
+        break;
+
+    case ASCENT:
+        if (altitudeChange <= DESCENT_ALTITUDE_CHANGE && currentAltitude < 650) {
+            descentConditionCounter++;
+        } else {
+            descentConditionCounter = 0;
+        }
+
+        if (descentConditionCounter > 10) {
+            telemetryData.state = DESCENT;
+            Serial.println("Phase 2: Descent");
+            descentConditionCounter = 0;
+        }
+        break;
+
+    case DESCENT:
+        if (currentAltitude <= DESCENT_ALTITUDE_LIMIT) {
+            telemetryData.hs_deployed = 'P';
+            delay(200);
+            telemetryData.pc_deployed = 'C';
+            telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE;
+            Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
+        }
+        break;
+
+    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
+        // if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
+        //     is_landed = true;
+        // }
+
+        if (currentAltitude <= 10) {
+            is_landed = true;
+        }
+
+        if (is_landed) {
+            telemetryData.state = LANDED;
+            Serial.println("Phase 4: Landed");
+        }
+        break;
+
+    case LANDED:
+        Serial.println("Rocket has landed safely.");
+        saveData();
+        turnOnBuzzer();
+        endTelemetry();
+        break;
+    }
+
+    previousAltitude = currentAltitude;
+}
+
+void semulationFlightStatesLogic() {
     static int descentConditionCounter = 0;
     float altitudeChange = telemetryData.altitude - previousAltitude;
 
@@ -197,6 +262,9 @@ void flightStatesLogic() {
 
     case DESCENT:
         if (telemetryData.altitude <= DESCENT_ALTITUDE_LIMIT) {
+            telemetryData.hs_deployed = 'P';
+            delay(200);
+            telemetryData.pc_deployed = 'C';
             telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE;
             Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
         }
@@ -206,6 +274,13 @@ void flightStatesLogic() {
         // if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
         //     is_landed = true;
         // }
+
+        //
+
+        for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
+            servo2.write(servo_2_position);
+        }
+
         if (telemetryData.altitude <= 10) {
             is_landed = true;
         }
@@ -306,7 +381,7 @@ void handleMQTTCommand(String cmd) {
     if (beforeSlash.equals("PRESSURE")) {
         float sim_pressure = afterSlash.toFloat();
         readSensorData(sim_pressure / 100);
-        flightStatesLogic();
+        semulationFlightStatesLogic();
         publishSensorDataToXbee();
         Serial.println("Pressure value: " + String(afterSlash));
     } else if (cmd.equals("CX/ON")) {
@@ -489,7 +564,7 @@ void publishSensorDataToXbee() {
 
     String dataToSend = "<T" + constructMessage() + ">";
     xbeeSerial.print(dataToSend);
-    // Serial.println("Sent data to XBee: " + dataToSend);
+    Serial.println("Sent data to XBee: " + dataToSend);
 }
 
 void initializeTelemetryData(TelemetryData &data) {
