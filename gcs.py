@@ -43,20 +43,18 @@ def publish_to_mqtt(topic, data):
     else:
         print("Publish failed")
 
+received_data = ""
 def process_received_xbee_data():
-    received_data = ""
-
-    while ser.in_waiting:
+    global received_data
+    if ser.in_waiting > 0:
         character = ser.read().decode()
         received_data += character
-        print(received_data)
 
         if '<' in received_data and '>' in received_data:
             start_idx = received_data.index('<') + 1
             end_idx = received_data.index('>')
             extracted_data = received_data[start_idx:end_idx]
             modified_extracted_data = extracted_data[1:]
-            print("HERE")
 
             if extracted_data.startswith('T'):
                 publish_to_mqtt(MQTT_TELEMETRY_TOPIC, modified_extracted_data)
@@ -80,8 +78,7 @@ client.loop_start()
 try:
     while True:
        process_received_xbee_data()
-       process_xbee_servo_control()
-       time.sleep(1)
+       # process_xbee_servo_control()
 except KeyboardInterrupt:
     print("Exiting...")
     ser.close()
