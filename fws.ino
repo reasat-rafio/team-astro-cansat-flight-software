@@ -31,7 +31,6 @@ TinyGPSPlus gps;                 // Initialize GPS
 Adafruit_BMP3XX bmp;             // Create an instance of the BMP3XX sensor
 Servo servo1;
 Servo servo2;
-Servo servo3;
 
 const int PACKET_COUNT_ADDRESS = 0;
 const int MISSION_TIME_ADDRESS = sizeof(unsigned long);
@@ -53,7 +52,7 @@ float pitotTubePressureDifferences[NUM_READINGS];
 
 const int VOLTAGE_SENSOR_PIN = A0; // Analog input pin
 bool servo_1_rotated = false, servo_2_rotated = false, servo_3_rotated = false;
-int servo_2_position = 0, servo_3_position = 0;
+int servo_1_position = 0, servo_2_position = 0;
 // servo_1_position = 0,
 
 const float GRAVITY = 9.80665;                   // Standard gravity in m/s^2
@@ -100,9 +99,8 @@ void setup() {
     Serial.begin(9600);
     Serial1.begin(9600);
 
-    // servo1.attach(22);
-    servo2.attach(23);
-    servo3.attach(41);
+    servo1.attach(23);
+    servo2.attach(41);
 
     initializeTelemetryData(telemetryData);
     initializeBasePitotTubeValues();
@@ -284,15 +282,15 @@ void semulationFlightStatesLogic() {
         // }
 
         // Open heatshield
-        for (servo_3_position = 90; servo_3_position >= 0; servo_3_position -= 1) {
-            servo3.write(servo_3_position);
+        for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
+            servo2.write(servo_2_position);
         }
 
         delay(200);
 
         // Open parachute
-        for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
-            servo2.write(servo_2_position);
+        for (servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
+            servo1.write(servo_1_position);
         }
 
         if (telemetryData.altitude <= 10) {
@@ -435,34 +433,14 @@ void handleMQTTCommand(String cmd) {
 
 void handleServoCommand(String receivedServoData) {
     Serial.println("Received servo command from XBee: " + receivedServoData);
-
-    // if (receivedServoData.trim().equals("a")) {
-    //     for (servo_1_position = 90; servo_1_position <= 180; servo_1_position += 1) {
-    //         servo1.write(servo_1_position);
-    //     }
-    // }
-    if (receivedServoData.trim().equals("s")) {
-        for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
-            servo2.write(servo_2_position);
-        }
-    } else if (receivedServoData.trim().equals("d")) {
-        for (servo_3_position = 90; servo_3_position >= 0; servo_3_position -= 1) {
-            servo3.write(servo_3_position);
-        }
-    }
-    // else if (receivedServoData.trim().equals("1")) {
-    //     for (servo_1_position = 0; servo_1_position <= 90; servo_1_position += 1) {
-    //         servo1.write(servo_1_position);
-    //     }
-    // }
-    else if (receivedServoData.trim().equals("2")) {
-        for (servo_2_position = 0; servo_2_position <= 90; servo_2_position += 1) {
-            servo2.write(servo_2_position);
-        }
-    } else if (receivedServoData.trim().equals("3")) {
-        for (servo_3_position = 0; servo_3_position <= 90; servo_3_position += 1) {
-            servo3.write(servo_3_position);
-        }
+    if (receivedServoData.trim().equals("a")) {
+        moveServo(servo1, 90, 0);
+    } else if (receivedServoData.trim().equals("s")) {
+        moveServo(servo2, 90, 0);
+    } else if (receivedServoData.trim().equals("1")) {
+        moveServo(servo1, 0, 90);
+    } else if (receivedServoData.trim().equals("2")) {
+        moveServo(servo2, 0, 90);
     }
 }
 
@@ -668,6 +646,14 @@ float calculateAltitude(float pressure) {
     float h = (1 - pow((pressure / 1013.25), (1 / 5.255))) * 44330.77;
 
     return h;
+}
+
+void moveServo(Servo &servo, int start, int end) {
+    int step = (start < end) ? 1 : -1;
+    for (int pos = start; pos != end; pos += step) {
+        servo.write(pos);
+    }
+    servo.write(end);
 }
 
 String getStateName(int state) {
