@@ -25,7 +25,7 @@
 #define LANDING_VELOCITY_THRESHOLD 1  // Velocity threshold to confirm landing
 #define LANDING_ALTITUDE_CHANGE 1     // Altitude threshold to confirm landing
 
-// bfs::Ms4525do pitotSensor;
+bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8);  // RX, TX
 TinyGPSPlus gps;                  // Initialize GPS
 Adafruit_BMP3XX bmp;              // Create an instance of the BMP3XX sensor
@@ -63,8 +63,15 @@ float initial_altitude = 0.0;
 float acceleration = 0.0;
 float previousAltitude = 0.0;
 
+const int buzzerPin = 4;
+
 unsigned long startTimeServo2 = 0;
 unsigned long startTimeServo1 = 0;
+
+const int sensorPin = A0; // Define the pin for the voltage sensor
+const float inputVoltage = 8.0; // Input voltage in volts
+const float desiredOutputVoltage = 5.0; // Desired output voltage in volts
+const float R1 = 10000.0; // Resistance of R1 in ohms
 
 struct TelemetryData {
   const char *team_id;
@@ -110,13 +117,17 @@ void setup() {
 
   delay(1000);
 
+  // Initialize buzzer pin as an output
+  pinMode(buzzerPin, OUTPUT);
+
+
   // Configure the Pitot tube sensor with I2C address 0x28, on bus 0, with a -1 to +1 PSI range
-  // pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
-  // if (!pitotSensor.Begin()) {
-  //   Serial.println("Error communicating with sensor");
-  //   while (1) {
-  //   }
-  // }
+  pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
+  if (!pitotSensor.Begin()) {
+    Serial.println("Error communicating with sensor");
+    while (1) {
+    }
+  }
 
   // Initialize MPU6050
   Wire1.beginTransmission(MPU6050_ADDRESS);
@@ -226,8 +237,8 @@ void flightStatesLogic() {
         }
         telemetryData.hs_deployed = 'P';
       }
-      
-      if (servo_2_rotated && (millis() - startTimeServo2 >= 200) && !servo_1_rotated) {
+
+      if (servo_2_rotated && (millis() - startTimeServo2 >= 350) && !servo_1_rotated) {
         startTimeServo1 = millis();
         servo_1_rotated = true;
         for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
@@ -243,23 +254,8 @@ void flightStatesLogic() {
       if (is_landed) {
         telemetryData.state = LANDED;
         Serial.println("Phase 4: Landed");
-        telemetryData.state = LANDED; // Update the state
+        telemetryData.state = LANDED;  // Update the state
       }
-
-        // Open heatshield
-        for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
-          servo2.write(servo_2_position);
-        }
-
-        telemetryData.hs_deployed = 'P';
-
-        delay(200);
-        // Open parachute
-        for (servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
-          servo1.write(servo_1_position);
-        }
-
-        telemetryData.pc_deployed = 'C';
 
       if (currentAltitude <= 10) {
         is_landed = true;
@@ -310,24 +306,32 @@ void semulationFlightStatesLogic() {
 
     case DESCENT:
       if (telemetryData.altitude <= DESCENT_ALTITUDE_LIMIT) {
-        // Open heatshield
-        for (servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
-          servo2.write(servo_2_position);
-        }
-        telemetryData.hs_deployed = 'P';
-        delay(200);
-        // Open parachute
-        for (servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
-          servo1.write(servo_1_position);
-        }
-        telemetryData.pc_deployed = 'C';
-
         telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE;
         Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
       }
       break;
 
     case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
+      // if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
+      //     is_landed = true;
+      // }
+      if (!servo_2_rotated) {
+        startTimeServo2 = millis();
+        servo_2_rotated = true;
+        for (int servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
+          servo2.write(servo_2_position);
+        }
+        telemetryData.hs_deployed = 'P';
+      }
+
+      if (servo_2_rotated && (millis() - startTimeServo2 >= 350) && !servo_1_rotated) {
+        startTimeServo1 = millis();
+        servo_1_rotated = true;
+        for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
+          servo1.write(servo_1_position);
+        }
+        telemetryData.pc_deployed = 'C';
+      }
 
       if (telemetryData.altitude <= 10) {
         is_landed = true;
@@ -336,7 +340,9 @@ void semulationFlightStatesLogic() {
       if (is_landed) {
         telemetryData.state = LANDED;
         Serial.println("Phase 4: Landed");
+        telemetryData.state = LANDED;  // Update the state
       }
+
       break;
 
     case LANDED:
@@ -351,7 +357,25 @@ void semulationFlightStatesLogic() {
 }
 
 void saveData() {}
-void turnOnBuzzer() {}
+void turnOnBuzzer() {
+  static unsigned long previousMillis = 0;
+  static bool buzzerState = LOW;
+  const unsigned long interval = 1000;  // Interval in milliseconds
+
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+
+    if (buzzerState == LOW) {
+      buzzerState = HIGH;
+    } else {
+      buzzerState = LOW;
+    }
+
+    digitalWrite(buzzerPin, buzzerState);
+  }
+}
 void endTelemetry() {
   telemetry_is_on = false;
   stopClock();
@@ -369,22 +393,22 @@ void readSensorData(float sim_pressure) {
   readAccelerometerData();
   readTemperaturePressureAltitudeValues(sim_pressure);
   readVoltageSensor();
-  // readPitotTubeVal();
+  readPitotTubeVal();
 }
 
-// void readPitotTubeVal() {
-//   if (pitotSensor.Read()) {
-//     float dynamicPressure = pitotSensor.pres_pa();
-//     // temperature = pitotSensor.die_temp_c();
+void readPitotTubeVal() {
+  if (pitotSensor.Read()) {
+    float dynamicPressure = pitotSensor.pres_pa();
+    // temperature = pitotSensor.die_temp_c();
 
-//     computePressureDifferences(dynamicPressure);
-//     float adjustedPressure = getClosestBaseValue(dynamicPressure);
+    computePressureDifferences(dynamicPressure);
+    float adjustedPressure = getClosestBaseValue(dynamicPressure);
 
-//     // Calculate airspeed using the adjusted pressure and constant air density (at sea level and 15°C)
-//     const float AIR_DENSITY_SEA_LEVEL = 1.225;  // Air density in kg/m^3
-//     telemetryData.air_speed = sqrt(2 * abs(adjustedPressure) / AIR_DENSITY_SEA_LEVEL);
-//   }
-// }
+    // Calculate airspeed using the adjusted pressure and constant air density (at sea level and 15°C)
+    const float AIR_DENSITY_SEA_LEVEL = 1.225;  // Air density in kg/m^3
+    telemetryData.air_speed = sqrt(2 * abs(adjustedPressure) / AIR_DENSITY_SEA_LEVEL);
+  }
+}
 
 void processReceivedXBeeData() {
   static String receivedData = "";  // Define a single buffer for received data
@@ -553,8 +577,8 @@ void readTemperaturePressureAltitudeValues(float sim_pressure) {
 }
 
 void readVoltageSensor() {
-  int sensorValue = analogRead(VOLTAGE_SENSOR_PIN);
-  telemetryData.voltage = sensorValue * (3.3 / 1023.0);  // Convert sensor value to voltage (assuming 3.3V reference)
+  int sensorValue = analogRead(sensorPin); // Read the voltage from the sensor
+  telemetryData.voltage = sensorValue * (inputVoltage / 510.0); // Convert sensor value to voltage
 }
 
 void startClock() {
@@ -711,7 +735,7 @@ String getStateName(int state) {
 
 String constructMessage() {
   // Construct message using telemetryData struct
-  String message = String(telemetryData.team_id) + ", " + String(telemetryData.mission_time) + ", " + String(telemetryData.packet_count) + ", " + String(telemetryData.mode) + ", " + getStateName(telemetryData.state) + ", " + String(telemetryData.altitude) + ", " + String(telemetryData.air_speed) + ", " + String(telemetryData.hs_deployed) + ", " + String(telemetryData.pc_deployed) + ", " + String(telemetryData.temperature) + ", " + String(telemetryData.voltage) + ", " + String(telemetryData.pressure) + ", " + String(telemetryData.gps_time) + ", " + String(telemetryData.gps_altitude, 7) + ", " + String(telemetryData.gps_latitude, 7) + ", " + String(telemetryData.gps_longitude, 7) + ", " + String(telemetryData.gps_sats) + ", " + String(telemetryData.accelerometer_x) + ", " + String(telemetryData.accelerometer_y) + ", " + String(telemetryData.gyroscope_z) + ", " + String(telemetryData.cmd_echo);
+  String message = String(telemetryData.team_id) + ", " + String(telemetryData.mission_time) + ", " + String(telemetryData.packet_count) + ", " + String(telemetryData.mode) + ", " + getStateName(telemetryData.state) + ", " + String(telemetryData.altitude) + ", " + String(telemetryData.air_speed) + ", " + String(telemetryData.hs_deployed) + ", " + String(telemetryData.pc_deployed) + ", " + String(telemetryData.temperature) + ", " + String(telemetryData.voltage, 2) + ", " + String(telemetryData.pressure) + ", " + String(telemetryData.gps_time) + ", " + String(telemetryData.gps_altitude, 7) + ", " + String(telemetryData.gps_latitude, 7) + ", " + String(telemetryData.gps_longitude, 7) + ", " + String(telemetryData.gps_sats) + ", " + String(telemetryData.accelerometer_x) + ", " + String(telemetryData.accelerometer_y) + ", " + String(telemetryData.gyroscope_z) + ", " + String(telemetryData.cmd_echo);
 
   return message;
 }
