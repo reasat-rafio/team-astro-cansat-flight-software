@@ -25,6 +25,28 @@
 #define LANDING_VELOCITY_THRESHOLD 1  // Velocity threshold to confirm landing
 #define LANDING_ALTITUDE_CHANGE 1     // Altitude threshold to confirm landing
 
+class Timer {
+private:
+  unsigned long previousMillis;
+  const long interval;
+
+public:
+  Timer(long interval)
+    : previousMillis(0), interval(interval) {}
+
+  bool isElapsed() {
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+      return true;
+    }
+    return false;
+  }
+};
+
+Timer telemetryTimer(1000);
+Timer flightStatesTimer(200);
+
 bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8);  // RX, TX
 TinyGPSPlus gps;                  // Initialize GPS
@@ -68,10 +90,10 @@ const int buzzerPin = 4;
 unsigned long startTimeServo2 = 0;
 unsigned long startTimeServo1 = 0;
 
-const int sensorPin = A0; // Define the pin for the voltage sensor
-const float inputVoltage = 8.0; // Input voltage in volts
-const float desiredOutputVoltage = 5.0; // Desired output voltage in volts
-const float R1 = 10000.0; // Resistance of R1 in ohms
+const int sensorPin = A0;                // Define the pin for the voltage sensor
+const float inputVoltage = 8.0;          // Input voltage in volts
+const float desiredOutputVoltage = 5.0;  // Desired output voltage in volts
+const float R1 = 10000.0;                // Resistance of R1 in ohms
 
 struct TelemetryData {
   const char *team_id;
@@ -124,9 +146,7 @@ void setup() {
   // Configure the Pitot tube sensor with I2C address 0x28, on bus 0, with a -1 to +1 PSI range
   pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
   if (!pitotSensor.Begin()) {
-    Serial.println("Error communicating with sensor");
-    while (1) {
-    }
+    Serial.println("Error communicating  with sensor");
   }
 
   // Initialize MPU6050
@@ -138,8 +158,6 @@ void setup() {
   // Initialize BMP390
   if (!bmp.begin_I2C(BMP390_ADDRESS, &Wire)) {  // hardware I2C mode, can pass in address & alt Wire
     Serial.println("Could not find a valid BMP390 sensor, check wiring!");
-    while (1) {
-    }
   }
 
   // Set up oversampling and filter initialization for BMP390
@@ -160,15 +178,22 @@ void loop() {
   unsigned long currentMillis = millis();
 
   // Check if it's time to run the 1000 ms interval code
-  if (currentMillis - previousMillis >= interval) {
-    previousMillis = currentMillis;
 
+  if (telemetryTimer.isElapsed()) {
     if (telemetry_is_on && !is_landed) {
-      runClockAndSetMissionTime();
-      readSensorData();
+      // runClockAndSetMissionTime();
       publishSensorDataToXbee();
     }
   }
+
+  if (flightStatesTimer.isElapsed()) {
+    if (telemetry_is_on && !is_landed) {
+      // runClockAndSetMissionTime();
+      readSensorData();
+      // publishSensorDataToXbee();
+    }
+  }
+
 
   // Run flight states logic every 200 ms
   // if (currentMillis - previousFlightStatesMillis >= flightStatesInterval) {
@@ -577,8 +602,8 @@ void readTemperaturePressureAltitudeValues(float sim_pressure) {
 }
 
 void readVoltageSensor() {
-  int sensorValue = analogRead(sensorPin); // Read the voltage from the sensor
-  telemetryData.voltage = sensorValue * (inputVoltage / 510.0); // Convert sensor value to voltage
+  int sensorValue = analogRead(sensorPin);                       // Read the voltage from the sensor
+  telemetryData.voltage = sensorValue * (inputVoltage / 510.0);  // Convert sensor value to voltage
 }
 
 void startClock() {
