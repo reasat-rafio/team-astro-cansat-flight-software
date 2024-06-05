@@ -20,7 +20,7 @@
 #define LANDED 5
 // Thresholds
 #define ASCENT_ALTITUDE_THRESHOLD 10  // Altitude increase threshold for ascent
-#define DESCENT_ALTITUDE_CHANGE -3    // Altitude decrease threshold for descent
+#define DESCENT_ALTITUDE_CHANGE -1    // Altitude decrease threshold for descent
 #define DESCENT_ALTITUDE_LIMIT 110    // Altitude limit for HEAT_SHIELD_DEPLOY
 #define LANDING_VELOCITY_THRESHOLD 1  // Velocity threshold to confirm landing
 #define LANDING_ALTITUDE_CHANGE 1     // Altitude threshold to confirm landing
@@ -44,8 +44,8 @@ public:
   }
 };
 
-Timer telemetryTimer(1000);
-Timer flightStatesTimer(200);
+Timer telemetryTimer(50);
+Timer flightStatesTimer(50);
 
 bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8);  // RX, TX
@@ -177,20 +177,16 @@ const long flightStatesInterval = 500;
 void loop() {
   unsigned long currentMillis = millis();
 
-  // Check if it's time to run the 1000 ms interval code
-
-  if (telemetryTimer.isElapsed()) {
-    if (telemetry_is_on && !is_landed) {
+  if (telemetry_is_on) {
+    if (telemetryTimer.isElapsed()) {
       // runClockAndSetMissionTime();
       publishSensorDataToXbee();
     }
-  }
 
-  if (flightStatesTimer.isElapsed()) {
-    if (telemetry_is_on && !is_landed) {
+    if (flightStatesTimer.isElapsed()) {
       // runClockAndSetMissionTime();
       readSensorData();
-      // publishSensorDataToXbee();
+      flightStatesLogic();
     }
   }
 
@@ -217,26 +213,36 @@ void loop() {
 }
 
 void flightStatesLogic() {
+  static int ascentConditionCounter = 0;
   static int descentConditionCounter = 0;
-  float currentAltitude = calculateAltitude(bmp.pressure / 100.0) - initial_altitude;
+  static int landedConditionCounter = 0;
+
+  float currentAltitude = telemetryData.altitude;
   float altitudeChange = currentAltitude - previousAltitude;
 
   switch (telemetryData.state) {
     case PRE_LAUNCH:
       if (currentAltitude > ASCENT_ALTITUDE_THRESHOLD) {
+        ascentConditionCounter++;
+      } else {
+        ascentConditionCounter = 0;
+      }
+
+      if (ascentConditionCounter >= 20) {
         telemetryData.state = ASCENT;
         Serial.println("Phase 1: Ascent");
+        ascentConditionCounter = 0;
       }
       break;
 
     case ASCENT:
-      if (altitudeChange <= DESCENT_ALTITUDE_CHANGE && currentAltitude < 650) {
+      if (altitudeChange <= DESCENT_ALTITUDE_CHANGE & currentAltitude < 725) {
         descentConditionCounter++;
       } else {
         descentConditionCounter = 0;
       }
 
-      if (descentConditionCounter > 10) {
+      if (descentConditionCounter > 20) {
         telemetryData.state = DESCENT;
         Serial.println("Phase 2: Descent");
         descentConditionCounter = 0;
@@ -245,15 +251,19 @@ void flightStatesLogic() {
 
     case DESCENT:
       if (currentAltitude <= DESCENT_ALTITUDE_LIMIT) {
+        descentConditionCounter++;
+      } else {
+        descentConditionCounter = 0;
+      }
+
+      if (descentConditionCounter >= 20) {
         telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE;
         Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
+        descentConditionCounter = 0;
       }
       break;
 
     case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
-      // if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
-      //     is_landed = true;
-      // }
       if (!servo_2_rotated) {
         startTimeServo2 = millis();
         servo_2_rotated = true;
@@ -273,20 +283,13 @@ void flightStatesLogic() {
       }
 
       if (currentAltitude <= 10) {
+        landedConditionCounter++;
+      } else {
+        landedConditionCounter = 0;
+      }
+
+      if (landedConditionCounter >= 20) {
         is_landed = true;
-      }
-
-      if (is_landed) {
-        telemetryData.state = LANDED;
-        Serial.println("Phase 4: Landed");
-        telemetryData.state = LANDED;  // Update the state
-      }
-
-      if (currentAltitude <= 10) {
-        is_landed = true;
-      }
-
-      if (is_landed) {
         telemetryData.state = LANDED;
         Serial.println("Phase 4: Landed");
       }
@@ -294,7 +297,6 @@ void flightStatesLogic() {
 
     case LANDED:
       Serial.println("Rocket has landed safely.");
-      saveData();
       turnOnBuzzer();
       endTelemetry();
       break;
@@ -316,7 +318,7 @@ void semulationFlightStatesLogic() {
       break;
 
     case ASCENT:
-      if (altitudeChange <= DESCENT_ALTITUDE_CHANGE && telemetryData.altitude < 650) {
+      if (altitudeChange <= DESCENT_ALTITUDE_CHANGE & telemetryData.altitude < 650) {
         descentConditionCounter++;
       } else {
         descentConditionCounter = 0;
@@ -372,7 +374,6 @@ void semulationFlightStatesLogic() {
 
     case LANDED:
       Serial.println("Rocket has landed safely.");
-      saveData();
       turnOnBuzzer();
       endTelemetry();
       break;
@@ -403,7 +404,7 @@ void turnOnBuzzer() {
 }
 void endTelemetry() {
   telemetry_is_on = false;
-  stopClock();
+  // stopClock();
 }
 
 void readSensorData() {
@@ -566,12 +567,11 @@ void readAccelerometerData() {
 }
 
 void readGPSData() {
-  int adjustedHour = gps.time.hour() + 6;
   telemetryData.gps_latitude = gps.location.lat();
   telemetryData.gps_longitude = gps.location.lng();
   telemetryData.gps_altitude = gps.altitude.meters();
   telemetryData.gps_sats = gps.satellites.value();
-  telemetryData.gps_time = String(adjustedHour) + ":" + (gps.time.minute() < 10 ? "0" : "") + String(gps.time.minute()) + ":" + (gps.time.second() < 10 ? "0" : "") + String(gps.time.second());
+  telemetryData.gps_time = String(gps.time.hour()) + ":" + String(gps.time.minute()) + ":" + String(gps.time.second());
 }
 
 void readTemperaturePressureAltitudeValues() {
@@ -636,7 +636,7 @@ void publishSensorDataToXbee() {
   EEPROM.put(PACKET_COUNT_ADDRESS, telemetryData.packet_count);
 
   String dataToSend = "<T" + constructMessage() + ">";
-  xbeeSerial.print(dataToSend);
+  // xbeeSerial.print(dataToSend);
   Serial.println("Sent data to XBee: " + dataToSend);
 }
 
