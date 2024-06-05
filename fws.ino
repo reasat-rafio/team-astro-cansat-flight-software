@@ -178,27 +178,17 @@ void loop() {
   unsigned long currentMillis = millis();
 
   if (telemetry_is_on) {
-    if (telemetryTimer.isElapsed()) {
-      // runClockAndSetMissionTime();
-      publishSensorDataToXbee();
-    }
-
     if (flightStatesTimer.isElapsed()) {
       // runClockAndSetMissionTime();
       readSensorData();
       flightStatesLogic();
     }
+
+    if (telemetryTimer.isElapsed()) {
+      // runClockAndSetMissionTime();
+      publishSensorDataToXbee();
+    }
   }
-
-
-  // Run flight states logic every 200 ms
-  // if (currentMillis - previousFlightStatesMillis >= flightStatesInterval) {
-  //     previousFlightStatesMillis = currentMillis;
-
-  //     if(!simulation_activate) {
-  //       flightStatesLogic();
-  //     }
-  // }
 
   // Continuously process without delay
   while (Serial1.available() > 0) {
@@ -487,8 +477,6 @@ void handleMQTTCommand(String cmd) {
     telemetry_is_on = false;
   } else if (cmd.equals("CAL")) {
     calibrateAltitude(3);
-    calibratePacketCount();
-    calibrateMissionTime();
     String msg = "<RCAL, SUCCESS, Calibrated altitude = " + String(initial_altitude) + ">";
     xbeeSerial.print(msg);
   } else if (cmd.equals("BCN/ON")) {
@@ -716,12 +704,12 @@ void calibrateAltitude(int numIterations) {
   EEPROM.put(INITIAL_ALTITUDE_ADDRESS, initial_altitude);
 }
 
-void calibratePacketCount() {
+void resetPacketCount() {
   telemetryData.packet_count = 0;
   EEPROM.put(PACKET_COUNT_ADDRESS, telemetryData.packet_count);
 }
 
-void calibrateMissionTime() {
+void resetMissionTime() {
   telemetryData.mission_time = 0;
   EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
 }
