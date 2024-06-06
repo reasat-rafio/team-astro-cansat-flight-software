@@ -87,6 +87,8 @@ float acceleration = 0.0;
 float previousAltitude = 0.0;
 
 const int buzzerPin = 4;
+unsigned long turnOnBuzzer_previousMillis = 0;
+bool turnOnBuzzer_buzzerState = LOW;
 
 unsigned long startTimeServo2 = 0;
 unsigned long startTimeServo1 = 0;
@@ -142,7 +144,7 @@ void setup() {
 
   // Initialize buzzer pin as an output
   pinMode(buzzerPin, OUTPUT);
-
+  digitalWrite(buzzerPin, LOW);  // Initialize buzzer to be off
 
   // Configure the Pitot tube sensor with I2C address 0x28, on bus 0, with a -1 to +1 PSI range
   pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
@@ -401,25 +403,34 @@ void semulationFlightStatesLogic() {
 }
 
 void saveData() {}
+
 void turnOnBuzzer() {
-  static unsigned long previousMillis = 0;
-  static bool buzzerState = LOW;
   const unsigned long interval = 1000;  // Interval in milliseconds
 
   unsigned long currentMillis = millis();
 
-  if (currentMillis - previousMillis >= interval) {
-    previousMillis = currentMillis;
+  if (currentMillis - turnOnBuzzer_previousMillis >= interval) {
+    turnOnBuzzer_previousMillis = currentMillis;
 
-    if (buzzerState == LOW) {
-      buzzerState = HIGH;
+    if (turnOnBuzzer_buzzerState == LOW) {
+      turnOnBuzzer_buzzerState = HIGH;
     } else {
-      buzzerState = LOW;
+      turnOnBuzzer_buzzerState = LOW;
     }
 
-    digitalWrite(buzzerPin, buzzerState);
+    digitalWrite(buzzerPin, turnOnBuzzer_buzzerState);
   }
 }
+
+void turnOffBuzzer() {
+  // Turn off the buzzer and reset the state
+  digitalWrite(buzzerPin, LOW);
+
+  // Optionally, reset the static variables in turnOnBuzzer if needed
+  turnOnBuzzer_previousMillis = 0;
+  turnOnBuzzer_buzzerState = LOW;
+}
+
 void endTelemetry() {
   telemetry_is_on = false;
   // stopClock();
@@ -508,9 +519,11 @@ void handleMQTTCommand(String cmd) {
     String msg = "<RCAL, SUCCESS, Calibrated altitude = " + String(initial_altitude) + ">";
     xbeeSerial.print(msg);
   } else if (cmd.equals("BCN/ON")) {
-    // Add code for BCN/ON command
+    turnOnBuzzer();
+    xbeeSerial.print("<RBCN/ON, SUCCESS, Buzzer turned on successfully>");
   } else if (cmd.equals("BCN/OFF")) {
-    // Add code for BCN/OFF command
+    turnOffBuzzer();
+    xbeeSerial.print("<RBCN/OFF, SUCCESS, Buzzer turned off successfully>");
   } else if (cmd.equals("SIM/ACTIVATE")) {
     if (simulation_enable) {
       telemetry_is_on = false;
