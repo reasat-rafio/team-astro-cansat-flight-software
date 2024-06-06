@@ -73,6 +73,10 @@ unsigned long elapsedClockTime = 0;
 bool simulation_enable = false;
 bool simulation_activate = false;
 
+int hours;
+int minutes;
+int seconds;
+
 const float PITOT_TUBE_VALUE_INCREMENT = 0.52606034;
 const float GAS_CONSTANT_AIR = 287.058;  // Specific gas constant for dry air in J/kg/K
 const int NUM_READINGS = 101;
@@ -214,13 +218,20 @@ void loop() {
 }
 
 void loadTimeFromEEPROM() {
-  int hours;
-  int minutes;
-  int seconds;
-
   EEPROM.get(EEPROM_HOURS_ADDR, hours);
   EEPROM.get(EEPROM_MINUTES_ADDR, minutes);
   EEPROM.get(EEPROM_SECONDS_ADDR, seconds);
+
+  if (hours == 0xFFFFFFFF) {
+    hours = hour();
+  }
+  if (minutes == 0xFFFFFFFF) {
+    minutes = minute();
+  }
+  if (seconds == 0xFFFFFFFF) {
+    seconds = second();
+  }
+
 
   setTime(hours, minutes, seconds, day(), month(), year());
   Teensy3Clock.set(now());  // set the RTC with the retrieved time
@@ -712,17 +723,6 @@ void stopClock() {
   }
 }
 
-
-void runClockAndSetMissionTime() {
-  if (clock_running) {
-    time_t t = Teensy3Clock.get();
-    setTime(t);
-
-    telemetryData.mission_time = String(hour()) + ":" + String(minute()) + ":" + String(second());
-    saveTimeToEEPROM();
-  }
-}
-
 void publishSensorDataToXbee() {
   telemetryData.packet_count++;
   EEPROM.put(PACKET_COUNT_ADDRESS, telemetryData.packet_count);
@@ -825,7 +825,16 @@ void resetMissionTime() {
   EEPROM.put(EEPROM_HOURS_ADDR, 0);
   EEPROM.put(EEPROM_MINUTES_ADDR, 0);
   EEPROM.put(EEPROM_SECONDS_ADDR, 0);
-  // EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
+}
+
+void runClockAndSetMissionTime() {
+  if (clock_running) {
+    time_t t = Teensy3Clock.get();
+    setTime(t);
+
+    telemetryData.mission_time = String(hour()) + ":" + String(minute()) + ":" + String(second());
+    saveTimeToEEPROM();
+  }
 }
 
 float calculateAltitude(float pressure) {
@@ -861,8 +870,6 @@ String getStateName(int state) {
       return "UNKNOWN";
   }
 }
-
-
 
 String constructMessage() {
   // Construct message using telemetryData struct
