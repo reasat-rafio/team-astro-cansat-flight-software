@@ -181,7 +181,7 @@ const long flightStatesInterval = 500;
 void loop() {
   unsigned long currentMillis = millis();
 
-  if (telemetry_is_on) {
+  if (telemetry_is_on && !simulation_activate) {
     if (telemetryReadTimer.isElapsed()) {
       // runClockAndSetMissionTime();
       readSensorData();
@@ -432,7 +432,7 @@ void readSensorData() {
   readAccelerometerData();
   readTemperaturePressureAltitudeValues();
   readVoltageSensor();
-  // readPitotTubeVal();
+  readPitotTubeVal();
 }
 
 // Simulation mode
