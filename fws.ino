@@ -535,6 +535,12 @@ void handleMQTTCommand(String cmd) {
     simulation_enable = false;
     xbeeSerial.print("<RSIM/DISABLE, SUCCESS, Simulation disabled>");
     Serial.println("simulation_disabled");
+  } else if(cmd.equals("RESET/ALL")){
+    resetMissionTime();
+    resetPacketCount();
+    initializeTelemetryData(telemetryData);
+    xbeeSerial.print("<RRESET/ALL, SUCCESS, Reset succcessful>");
+
   }
 }
 
@@ -680,7 +686,8 @@ void initializeTelemetryData(TelemetryData &data) {
   data.hs_deployed = 'N';
   data.pc_deployed = 'N';
   data.gps_time = "0:0";
-  data.cmd_echo = "CMD_ECHO";
+  data.state = PRE_LAUNCH;
+  // data.cmd_echo = "CMD_ECHO";
 
   // Read the initial_altitude from EEPROM
   EEPROM.get(INITIAL_ALTITUDE_ADDRESS, initial_altitude);
