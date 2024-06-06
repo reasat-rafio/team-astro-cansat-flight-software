@@ -251,25 +251,9 @@ void flightStatesLogic() {
       }
 
       if (descentConditionCounter >= 20) {
-        telemetryData.state = PARACHUTE_DEPLOY;
-        Serial.println("Phase 3: Parachute Deploy");
-        descentConditionCounter = 0;
-      }
-      break;
-
-    case PARACHUTE_DEPLOY:
-      if (!servo_2_rotated) {
-        startTimeServo2 = millis();
-        servo_2_rotated = true;
-        for (int servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
-          servo2.write(servo_2_position);
-        }
-        telemetryData.hs_deployed = 'P';
-      }
-
-      if (servo_2_rotated && (millis() - startTimeServo2 >= 350)) {
         telemetryData.state = HEAT_SHIELD_RELEASE;
-        Serial.println("Phase 4: Heat Shield Release");
+        Serial.println("Phase 3: HEAT_SHIELD_RELEASE");
+        descentConditionCounter = 0;
       }
       break;
 
@@ -280,10 +264,28 @@ void flightStatesLogic() {
         for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
           servo1.write(servo_1_position);
         }
-        telemetryData.pc_deployed = 'C';
+        telemetryData.hs_deployed = 'P';
+        Serial.println("Heat Shield released");
       }
 
-      if (servo_1_rotated) {
+      if (servo_1_rotated && (millis() - startTimeServo1 >= 350)) {
+        telemetryData.state = PARACHUTE_DEPLOY;
+        Serial.println("Phase 4: PARACHUTE_DEPLOY");
+      }
+      break;
+
+    case PARACHUTE_DEPLOY:
+      if (!servo_2_rotated) {
+        startTimeServo2 = millis();
+        servo_2_rotated = true;
+        for (int servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
+          servo2.write(servo_2_position);
+        }
+        telemetryData.pc_deployed = 'C';
+        Serial.println("Parachute deployed");
+      }
+
+      if (servo_2_rotated) {
         telemetryData.state = LANDED;
         Serial.println("Phase 5: Landed");
       }
@@ -294,7 +296,7 @@ void flightStatesLogic() {
         landedConditionCounter = 0;
       }
 
-      if (landedConditionCounter >= 3) {
+      if (landedConditionCounter >= 20) {
         is_landed = true;
         telemetryData.state = LANDED;
         Serial.println("Phase 5: Landed");
@@ -343,8 +345,25 @@ void semulationFlightStatesLogic() {
 
     case DESCENT:
       if (currentAltitude <= DESCENT_ALTITUDE_LIMIT) {
+        telemetryData.state = HEAT_SHIELD_RELEASE;
+        Serial.println("Phase 3: HEAT_SHIELD_RELEASE");
+      }
+      break;
+
+    case HEAT_SHIELD_RELEASE:
+      if (!servo_1_rotated) {
+        startTimeServo1 = millis();
+        servo_1_rotated = true;
+        for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
+          servo1.write(servo_1_position);
+        }
+        telemetryData.hs_deployed = 'P';
+        Serial.println("Heat Shield released");
+      }
+
+      if (servo_1_rotated && (millis() - startTimeServo1 >= 350)) {
         telemetryData.state = PARACHUTE_DEPLOY;
-        Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
+        Serial.println("Phase 4: PARACHUTE_DEPLOY");
       }
       break;
 
@@ -355,27 +374,11 @@ void semulationFlightStatesLogic() {
         for (int servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
           servo2.write(servo_2_position);
         }
-        telemetryData.hs_deployed = 'P';
-      }
-
-      if (servo_2_rotated && (millis() - startTimeServo2 >= 350)) {
-        telemetryData.state = HEAT_SHIELD_RELEASE;
-        Serial.println("Phase 4: Heat Shield Release");
-      }
-
-      break;
-
-    case HEAT_SHIELD_RELEASE:
-      if (!servo_1_rotated) {
-        startTimeServo1 = millis();
-        servo_1_rotated = true;
-        for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
-          servo1.write(servo_1_position);
-        }
         telemetryData.pc_deployed = 'C';
+        Serial.println("Parachute deployed");
       }
 
-      if (servo_1_rotated) {
+      if (servo_2_rotated) {
         telemetryData.state = LANDED;
         Serial.println("Phase 5: Landed");
       }
@@ -535,12 +538,27 @@ void handleMQTTCommand(String cmd) {
     simulation_enable = false;
     xbeeSerial.print("<RSIM/DISABLE, SUCCESS, Simulation disabled>");
     Serial.println("simulation_disabled");
-  } else if(cmd.equals("RESET/ALL")){
+  } else if (cmd.equals("RESET/ALL")) {
     resetMissionTime();
     resetPacketCount();
     initializeTelemetryData(telemetryData);
     xbeeSerial.print("<RRESET/ALL, SUCCESS, Reset succcessful>");
-
+  } else if (cmd.equals("HS/ON")) {
+    moveServo(servo2, 90, 0);
+    xbeeSerial.print("<RHS/ON, SUCCESS, Heatshield activated>");
+    Serial.println("Heatshield activated");
+  } else if (cmd.equals("HS/OFF")) {
+    moveServo(servo2, 0, 90);
+    xbeeSerial.print("<RHS/OFF, SUCCESS, Heatshield deactivated>");
+    Serial.println("Heatshield deactivated");
+  } else if (cmd.equals("PC/ON")) {
+    moveServo(servo1, 90, 0);
+    xbeeSerial.print("<RPC/ON, SUCCESS, Parachute deployed>");
+    Serial.println("Parachute deployed");
+  } else if (cmd.equals("PC/OFF")) {
+    moveServo(servo2, 90, 0);
+    xbeeSerial.print("<RPC/OFF, SUCCESS, Parachute retracted>");
+    Serial.println("Parachute retracted");
   }
 }
 
