@@ -6,6 +6,7 @@
 #include <TinyGPS++.h>
 #include <Ultrasonic.h>
 #include <Wire.h>
+#include <TimeLib.h>
 
 #define MPU6050_ADDRESS 0x68              // MPU6050 I2C address
 #define BMP390_ADDRESS 0x77               // BMP390 I2C address
@@ -63,6 +64,9 @@ const int INITIAL_ALTITUDE_ADDRESS = MISSION_TIME_ADDRESS + sizeof(unsigned long
 bool telemetry_is_on = false;
 bool is_landed = false;
 bool clock_running = false;
+unsigned long startClockTime = 0;
+unsigned long elapsedClockTime = 0;
+
 bool simulation_enable = false;
 bool simulation_activate = false;
 
@@ -101,7 +105,7 @@ const float R1 = 10000.0;                // Resistance of R1 in ohms
 
 struct TelemetryData {
   const char *team_id;
-  unsigned long mission_time;
+  String mission_time;
   unsigned long packet_count;
   char mode;
   int state;
@@ -181,15 +185,15 @@ const long flightStatesInterval = 500;
 void loop() {
   unsigned long currentMillis = millis();
 
+
   if (telemetry_is_on && !simulation_activate) {
     if (telemetryReadTimer.isElapsed()) {
-      // runClockAndSetMissionTime();
+      runClockAndSetMissionTime();
       readSensorData();
       flightStatesLogic();
     }
 
     if (telemetryPublishTimer.isElapsed()) {
-      // runClockAndSetMissionTime();
       publishSensorDataToXbee();
     }
   }
@@ -428,7 +432,7 @@ void turnOffBuzzer() {
 
 void endTelemetry() {
   telemetry_is_on = false;
-  // stopClock();
+  stopClock();
 }
 
 void readSensorData() {
@@ -493,7 +497,6 @@ void handleMQTTCommand(String cmd) {
   int slashIndex = cmd.indexOf('/');
   String beforeSlash = cmd.substring(0, slashIndex);
   String afterSlash = cmd.substring(slashIndex + 1);
-
   telemetryData.cmd_echo = cmd;
 
   Serial.println("Received MQTT command from XBee: " + cmd);
@@ -504,6 +507,23 @@ void handleMQTTCommand(String cmd) {
     semulationFlightStatesLogic();
     publishSensorDataToXbee();
     Serial.println("Pressure value: " + String(afterSlash));
+  } else if (beforeSlash.equals("UTC")) {
+    Serial.print(afterSlash);
+    if (afterSlash.equals("GPS")) {
+
+    } else {
+      int firstColon = afterSlash.indexOf(':');
+      int secondColon = afterSlash.indexOf(':', firstColon + 1);
+
+      int hours = afterSlash.substring(0, firstColon).toInt();
+      int minutes = afterSlash.substring(firstColon + 1, secondColon).toInt();
+      int seconds = afterSlash.substring(secondColon + 1).toInt();
+
+      setTime(hours, minutes, seconds, day(), month(), year());
+      Teensy3Clock.set(now());  // set the RTC
+
+      Serial.println("RTC has been set!");
+    }
   } else if (cmd.equals("CX/ON")) {
     telemetry_is_on = true;
     startClock();
@@ -659,10 +679,10 @@ void startClock() {
     Serial.println("Stopwatch is already running.");
   }
 }
+
 void stopClock() {
   if (clock_running) {
     clock_running = false;
-    Serial.print("Stopwatch stopped. Elapsed time: ");
     Serial.println(" seconds");
   } else {
     Serial.println("Stopwatch is not running.");
@@ -671,8 +691,14 @@ void stopClock() {
 
 void runClockAndSetMissionTime() {
   if (clock_running) {
-    telemetryData.mission_time++;
-    EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
+    time_t t = Teensy3Clock.get();
+    setTime(t);
+
+    telemetryData.mission_time = String(hour()) + ":" + String(minute()) + ":" + String(second());
+
+
+    // telemetryData.mission_time++;
+    // EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
   }
 }
 
@@ -700,7 +726,6 @@ void publishSensorDataToXbee() {
 void initializeTelemetryData(TelemetryData &data) {
   data.team_id = "2043";
   data.mode = 'F';
-  // data.state = PRE_LAUNCH;
   data.hs_deployed = 'N';
   data.pc_deployed = 'N';
   data.gps_time = "0:0";
@@ -725,13 +750,13 @@ void initializeTelemetryData(TelemetryData &data) {
     data.packet_count = 0;
   }
 
-  // Read the mission time from EEPROM
-  EEPROM.get(MISSION_TIME_ADDRESS, data.mission_time);
+  // // Read the mission time from EEPROM
+  // EEPROM.get(MISSION_TIME_ADDRESS, data.mission_time);
 
-  // Check if the mission time is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
-  if (data.mission_time == 0xFFFFFFFF) {
-    data.mission_time = 0;
-  }
+  // // Check if the mission time is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
+  // if (data.mission_time == 0xFFFFFFFF) {
+  //   data.mission_time = "00:00:00";
+  // }
 }
 
 void initializeBasePitotTubeValues() {
@@ -780,7 +805,7 @@ void resetPacketCount() {
 }
 
 void resetMissionTime() {
-  telemetryData.mission_time = 0;
+  telemetryData.mission_time = "00:00:00";
   EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
 }
 
@@ -817,6 +842,8 @@ String getStateName(int state) {
       return "UNKNOWN";
   }
 }
+
+
 
 String constructMessage() {
   // Construct message using telemetryData struct
