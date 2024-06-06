@@ -16,7 +16,8 @@
 #define PRE_LAUNCH 0
 #define ASCENT 1
 #define DESCENT 2
-#define PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE 3
+#define PARACHUTE_DEPLOY 3
+#define HEAT_SHIELD_RELEASE 4
 #define LANDED 5
 // Thresholds
 #define ASCENT_ALTITUDE_THRESHOLD 10  // Altitude increase threshold for ascent
@@ -44,8 +45,8 @@ public:
   }
 };
 
-Timer telemetryTimer(50);
-Timer flightStatesTimer(50);
+Timer telemetryPublishTimer(1000);
+Timer telemetryReadTimer(50);
 
 bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8);  // RX, TX
@@ -178,13 +179,13 @@ void loop() {
   unsigned long currentMillis = millis();
 
   if (telemetry_is_on) {
-    if (flightStatesTimer.isElapsed()) {
+    if (telemetryReadTimer.isElapsed()) {
       // runClockAndSetMissionTime();
       readSensorData();
       flightStatesLogic();
     }
 
-    if (telemetryTimer.isElapsed()) {
+    if (telemetryPublishTimer.isElapsed()) {
       // runClockAndSetMissionTime();
       publishSensorDataToXbee();
     }
@@ -247,13 +248,13 @@ void flightStatesLogic() {
       }
 
       if (descentConditionCounter >= 20) {
-        telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE;
-        Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
+        telemetryData.state = PARACHUTE_DEPLOY;
+        Serial.println("Phase 3: Parachute Deploy");
         descentConditionCounter = 0;
       }
       break;
 
-    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
+    case PARACHUTE_DEPLOY:
       if (!servo_2_rotated) {
         startTimeServo2 = millis();
         servo_2_rotated = true;
@@ -263,7 +264,14 @@ void flightStatesLogic() {
         telemetryData.hs_deployed = 'P';
       }
 
-      if (servo_2_rotated && (millis() - startTimeServo2 >= 350) && !servo_1_rotated) {
+      if (servo_2_rotated && (millis() - startTimeServo2 >= 350)) {
+        telemetryData.state = HEAT_SHIELD_RELEASE;
+        Serial.println("Phase 4: Heat Shield Release");
+      }
+      break;
+
+    case HEAT_SHIELD_RELEASE:
+      if (!servo_1_rotated) {
         startTimeServo1 = millis();
         servo_1_rotated = true;
         for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
@@ -272,16 +280,21 @@ void flightStatesLogic() {
         telemetryData.pc_deployed = 'C';
       }
 
+      if (servo_1_rotated) {
+        telemetryData.state = LANDED;
+        Serial.println("Phase 5: Landed");
+      }
+
       if (currentAltitude <= 10) {
         landedConditionCounter++;
       } else {
         landedConditionCounter = 0;
       }
 
-      if (landedConditionCounter >= 20) {
+      if (landedConditionCounter >= 3) {
         is_landed = true;
         telemetryData.state = LANDED;
-        Serial.println("Phase 4: Landed");
+        Serial.println("Phase 5: Landed");
       }
       break;
 
@@ -296,19 +309,23 @@ void flightStatesLogic() {
 }
 
 void semulationFlightStatesLogic() {
+  static int ascentConditionCounter = 0;
   static int descentConditionCounter = 0;
-  float altitudeChange = telemetryData.altitude - previousAltitude;
+  static int landedConditionCounter = 0;
+
+  float currentAltitude = telemetryData.altitude;
+  float altitudeChange = currentAltitude - previousAltitude;
 
   switch (telemetryData.state) {
     case PRE_LAUNCH:
-      if (telemetryData.altitude > ASCENT_ALTITUDE_THRESHOLD) {
+      if (currentAltitude > ASCENT_ALTITUDE_THRESHOLD) {
         telemetryData.state = ASCENT;
         Serial.println("Phase 1: Ascent");
       }
       break;
 
     case ASCENT:
-      if (altitudeChange <= DESCENT_ALTITUDE_CHANGE & telemetryData.altitude < 650) {
+      if (altitudeChange <= DESCENT_ALTITUDE_CHANGE & currentAltitude < 650) {
         descentConditionCounter++;
       } else {
         descentConditionCounter = 0;
@@ -322,16 +339,13 @@ void semulationFlightStatesLogic() {
       break;
 
     case DESCENT:
-      if (telemetryData.altitude <= DESCENT_ALTITUDE_LIMIT) {
-        telemetryData.state = PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE;
+      if (currentAltitude <= DESCENT_ALTITUDE_LIMIT) {
+        telemetryData.state = PARACHUTE_DEPLOY;
         Serial.println("Phase 3: PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE");
       }
       break;
 
-    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
-      // if (acceleration < LANDING_VELOCITY_THRESHOLD && altitudeChange < LANDING_ALTITUDE_CHANGE) {
-      //     is_landed = true;
-      // }
+    case PARACHUTE_DEPLOY:
       if (!servo_2_rotated) {
         startTimeServo2 = millis();
         servo_2_rotated = true;
@@ -341,7 +355,15 @@ void semulationFlightStatesLogic() {
         telemetryData.hs_deployed = 'P';
       }
 
-      if (servo_2_rotated && (millis() - startTimeServo2 >= 350) && !servo_1_rotated) {
+      if (servo_2_rotated && (millis() - startTimeServo2 >= 350)) {
+        telemetryData.state = HEAT_SHIELD_RELEASE;
+        Serial.println("Phase 4: Heat Shield Release");
+      }
+
+      break;
+
+    case HEAT_SHIELD_RELEASE:
+      if (!servo_1_rotated) {
         startTimeServo1 = millis();
         servo_1_rotated = true;
         for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
@@ -350,16 +372,22 @@ void semulationFlightStatesLogic() {
         telemetryData.pc_deployed = 'C';
       }
 
-      if (telemetryData.altitude <= 10) {
-        is_landed = true;
-      }
-
-      if (is_landed) {
+      if (servo_1_rotated) {
         telemetryData.state = LANDED;
-        Serial.println("Phase 4: Landed");
-        telemetryData.state = LANDED;  // Update the state
+        Serial.println("Phase 5: Landed");
       }
 
+      if (currentAltitude <= 10) {
+        landedConditionCounter++;
+      } else {
+        landedConditionCounter = 0;
+      }
+
+      if (landedConditionCounter >= 20) {
+        is_landed = true;
+        telemetryData.state = LANDED;
+        Serial.println("Phase 5: Landed");
+      }
       break;
 
     case LANDED:
@@ -369,7 +397,7 @@ void semulationFlightStatesLogic() {
       break;
   }
 
-  previousAltitude = telemetryData.altitude;
+  previousAltitude = currentAltitude;
 }
 
 void saveData() {}
@@ -624,8 +652,20 @@ void publishSensorDataToXbee() {
   EEPROM.put(PACKET_COUNT_ADDRESS, telemetryData.packet_count);
 
   String dataToSend = "<T" + constructMessage() + ">";
-  // xbeeSerial.print(dataToSend);
-  Serial.println("Sent data to XBee: " + dataToSend);
+
+  // Convert String to const char* for length calculation
+  const char *dataCharArray = dataToSend.c_str();
+  size_t dataLength = strlen(dataCharArray);
+
+  // Send data to XBee and check if the entire message was sent
+  size_t bytesWritten = xbeeSerial.write(dataCharArray, dataLength);
+
+  // Only print to Serial if the data was successfully sent to XBee
+  if (bytesWritten == dataLength) {
+    Serial.println("Sent data to XBee: " + dataToSend);
+  } else {
+    Serial.println("Failed to send data to XBee: " + dataToSend);
+  }
 }
 
 void initializeTelemetryData(TelemetryData &data) {
@@ -737,8 +777,10 @@ String getStateName(int state) {
       return "ASCENT";
     case DESCENT:
       return "DESCENT";
-    case PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE:
-      return "PARACHUTE_DEPLOY_AND_HEAT_SHIELD_RELEASE";
+    case PARACHUTE_DEPLOY:
+      return "PARACHUTE_DEPLOY";
+    case HEAT_SHIELD_RELEASE:
+      return "HEAT_SHIELD_RELEASE";
     case LANDED:
       return "LANDED";
     default:
