@@ -46,6 +46,7 @@ public:
 };
 
 Timer telemetryPublishTimer(1000);
+Timer buzzerTimer(1000);
 Timer telemetryReadTimer(50);
 
 bfs::Ms4525do pitotSensor;
@@ -405,19 +406,12 @@ void semulationFlightStatesLogic() {
 void saveData() {}
 
 void turnOnBuzzer() {
-  const unsigned long interval = 1000;  // Interval in milliseconds
-
-  unsigned long currentMillis = millis();
-
-  if (currentMillis - turnOnBuzzer_previousMillis >= interval) {
-    turnOnBuzzer_previousMillis = currentMillis;
-
+  if (buzzerTimer.isElapsed()) {
     if (turnOnBuzzer_buzzerState == LOW) {
       turnOnBuzzer_buzzerState = HIGH;
     } else {
       turnOnBuzzer_buzzerState = LOW;
     }
-
     digitalWrite(buzzerPin, turnOnBuzzer_buzzerState);
   }
 }
@@ -426,8 +420,6 @@ void turnOffBuzzer() {
   // Turn off the buzzer and reset the state
   digitalWrite(buzzerPin, LOW);
 
-  // Optionally, reset the static variables in turnOnBuzzer if needed
-  turnOnBuzzer_previousMillis = 0;
   turnOnBuzzer_buzzerState = LOW;
 }
 
