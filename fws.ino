@@ -58,8 +58,11 @@ Servo servo1;
 Servo servo2;
 
 const int PACKET_COUNT_ADDRESS = 0;
+const int EEPROM_HOURS_ADDR = 19;
+const int EEPROM_MINUTES_ADDR = 23;
+const int EEPROM_SECONDS_ADDR = 27;
 const int MISSION_TIME_ADDRESS = sizeof(unsigned long);
-const int INITIAL_ALTITUDE_ADDRESS = MISSION_TIME_ADDRESS + sizeof(unsigned long);
+const int INITIAL_ALTITUDE_ADDRESS = EEPROM_SECONDS_ADDR + sizeof(unsigned long);
 
 bool telemetry_is_on = false;
 bool is_landed = false;
@@ -208,6 +211,19 @@ void loop() {
     }
   }
   processReceivedXBeeData();
+}
+
+void loadTimeFromEEPROM() {
+  int hours;
+  int minutes;
+  int seconds;
+
+  EEPROM.get(EEPROM_HOURS_ADDR, hours);
+  EEPROM.get(EEPROM_MINUTES_ADDR, minutes);
+  EEPROM.get(EEPROM_SECONDS_ADDR, seconds);
+
+  setTime(hours, minutes, seconds, day(), month(), year());
+  Teensy3Clock.set(now());  // set the RTC with the retrieved time
 }
 
 void flightStatesLogic() {
@@ -639,6 +655,13 @@ void readGPSData() {
   telemetryData.gps_time = String(gps.time.hour()) + ":" + String(gps.time.minute()) + ":" + String(gps.time.second());
 }
 
+void saveTimeToEEPROM() {
+  EEPROM.put(EEPROM_HOURS_ADDR, hour());
+  EEPROM.put(EEPROM_MINUTES_ADDR, minute());
+  EEPROM.put(EEPROM_SECONDS_ADDR, second());
+}
+
+
 void readTemperaturePressureAltitudeValues() {
   // Read temperature, pressure, and altitude data from BMP390
   if (!bmp.performReading()) {
@@ -689,16 +712,14 @@ void stopClock() {
   }
 }
 
+
 void runClockAndSetMissionTime() {
   if (clock_running) {
     time_t t = Teensy3Clock.get();
     setTime(t);
 
     telemetryData.mission_time = String(hour()) + ":" + String(minute()) + ":" + String(second());
-
-
-    // telemetryData.mission_time++;
-    // EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
+    saveTimeToEEPROM();
   }
 }
 
@@ -750,13 +771,8 @@ void initializeTelemetryData(TelemetryData &data) {
     data.packet_count = 0;
   }
 
-  // // Read the mission time from EEPROM
-  // EEPROM.get(MISSION_TIME_ADDRESS, data.mission_time);
-
-  // // Check if the mission time is uninitialized (EEPROM returns 0xFFFFFFFF if it's uninitialized)
-  // if (data.mission_time == 0xFFFFFFFF) {
-  //   data.mission_time = "00:00:00";
-  // }
+  // Read the mission time from EEPROM
+  loadTimeFromEEPROM();
 }
 
 void initializeBasePitotTubeValues() {
@@ -806,7 +822,10 @@ void resetPacketCount() {
 
 void resetMissionTime() {
   telemetryData.mission_time = "00:00:00";
-  EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
+  EEPROM.put(EEPROM_HOURS_ADDR, 0);
+  EEPROM.put(EEPROM_MINUTES_ADDR, 0);
+  EEPROM.put(EEPROM_SECONDS_ADDR, 0);
+  // EEPROM.put(MISSION_TIME_ADDRESS, telemetryData.mission_time);
 }
 
 float calculateAltitude(float pressure) {
