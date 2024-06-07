@@ -49,6 +49,7 @@ public:
 Timer telemetryPublishTimer(1000);
 Timer buzzerTimer(1000);
 Timer telemetryReadTimer(50);
+Timer servoTImer(100);
 
 bfs::Ms4525do pitotSensor;
 SoftwareSerial xbeeSerial(7, 8);  // RX, TX
@@ -153,6 +154,7 @@ void setup() {
   initializeBasePitotTubeValues();
 
   delay(1000);
+  startClock();
 
   // Initialize buzzer pin as an output
   pinMode(buzzerPin, OUTPUT);
@@ -161,7 +163,7 @@ void setup() {
   // Configure the Pitot tube sensor with I2C address 0x28, on bus 0, with a -1 to +1 PSI range
   pitotSensor.Config(&Wire2, 0x28, 1.0f, -1.0f);
   if (!pitotSensor.Begin()) {
-    Serial.println("Error communicating  with sensor");
+    Serial.println("Error communicating  with sensor :P");
   }
 
   // Initialize MPU6050
@@ -192,10 +194,12 @@ const long flightStatesInterval = 500;
 void loop() {
   unsigned long currentMillis = millis();
 
+  if (telemetryReadTimer.isElapsed()) {
+    runClockAndSetMissionTime();
+  }
 
   if (telemetry_is_on && !simulation_activate) {
     if (telemetryReadTimer.isElapsed()) {
-      runClockAndSetMissionTime();
       readSensorData();
       flightStatesLogic();
     }
@@ -385,9 +389,10 @@ void semulationFlightStatesLogic() {
       if (!servo_1_rotated) {
         startTimeServo1 = millis();
         servo_1_rotated = true;
-        for (int servo_1_position = 90; servo_1_position >= 0; servo_1_position -= 1) {
-          servo1.write(servo_1_position);
-        }
+        moveServo(servo1, 90, 0);
+        delay(200);
+        moveServo(servo1, 0, 90);
+
         telemetryData.hs_deployed = 'P';
         Serial.println("Heat Shield released");
       }
@@ -402,9 +407,8 @@ void semulationFlightStatesLogic() {
       if (!servo_2_rotated) {
         startTimeServo2 = millis();
         servo_2_rotated = true;
-        for (int servo_2_position = 90; servo_2_position >= 0; servo_2_position -= 1) {
-          servo2.write(servo_2_position);
-        }
+        moveServo(servo2, 90, 0);
+
         telemetryData.pc_deployed = 'C';
         Serial.println("Parachute deployed");
       }
@@ -553,7 +557,6 @@ void handleMQTTCommand(String cmd) {
     }
   } else if (cmd.equals("CX/ON")) {
     telemetry_is_on = true;
-    startClock();
   } else if (cmd.equals("CX/OFF")) {
     telemetry_is_on = false;
   } else if (cmd.equals("CAL")) {
@@ -591,19 +594,23 @@ void handleMQTTCommand(String cmd) {
     initializeTelemetryData(telemetryData);
     xbeeSerial.print("<RRESET/ALL, SUCCESS, Reset succcessful>");
   } else if (cmd.equals("HS/ON")) {
-    moveServo(servo2, 90, 0);
+    moveServo(servo1, 90, 0);
+    delay(200);
+    moveServo(servo1, 0, 90);
     xbeeSerial.print("<RHS/ON, SUCCESS, Heatshield activated>");
     Serial.println("Heatshield activated");
   } else if (cmd.equals("HS/OFF")) {
-    moveServo(servo2, 0, 90);
+    moveServo(servo1, 90, 0);
+    delay(200);
+    moveServo(servo1, 0, 90);
     xbeeSerial.print("<RHS/OFF, SUCCESS, Heatshield deactivated>");
     Serial.println("Heatshield deactivated");
   } else if (cmd.equals("PC/ON")) {
-    moveServo(servo1, 90, 0);
+    moveServo(servo2, 90, 0);
     xbeeSerial.print("<RPC/ON, SUCCESS, Parachute deployed>");
     Serial.println("Parachute deployed");
   } else if (cmd.equals("PC/OFF")) {
-    moveServo(servo2, 90, 0);
+    moveServo(servo2, 0, 90);
     xbeeSerial.print("<RPC/OFF, SUCCESS, Parachute retracted>");
     Serial.println("Parachute retracted");
   }
@@ -613,6 +620,8 @@ void handleServoCommand(String receivedServoData) {
   Serial.println("Received servo command from XBee: " + receivedServoData);
   if (receivedServoData.trim().equals("a")) {
     moveServo(servo1, 90, 0);
+    delay(200);
+    moveServo(servo1, 0, 90);
   } else if (receivedServoData.trim().equals("s")) {
     moveServo(servo2, 90, 0);
   } else if (receivedServoData.trim().equals("1")) {
@@ -870,6 +879,8 @@ String getStateName(int state) {
       return "UNKNOWN";
   }
 }
+
+
 
 String constructMessage() {
   // Construct message using telemetryData struct
