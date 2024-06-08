@@ -84,12 +84,9 @@ const int NUM_READINGS = 101;
 float pitotTubeBaseValues[NUM_READINGS];
 float pitotTubePressureDifferences[NUM_READINGS];
 
-// const int BUZZER_PIN = 4;
-
 const int VOLTAGE_SENSOR_PIN = A0;  // Analog input pin
 bool servo_1_rotated = false, servo_2_rotated = false;
 int servo_1_position = 0, servo_2_position = 0;
-// servo_1_position = 0,
 
 const float GRAVITY = 9.80665;                    // Standard gravity in m/s^2
 const float ACCELEROMETER_SENSITIVITY = 16384.0;  // Sensitivity scale factor for the accelerometer
@@ -194,10 +191,6 @@ const long flightStatesInterval = 500;
 void loop() {
   unsigned long currentMillis = millis();
 
-  if (telemetryReadTimer.isElapsed()) {
-    runClockAndSetMissionTime();
-  }
-
   if (telemetry_is_on && !simulation_activate) {
     if (telemetryReadTimer.isElapsed()) {
       readSensorData();
@@ -205,6 +198,7 @@ void loop() {
     }
 
     if (telemetryPublishTimer.isElapsed()) {
+      runClockAndSetMissionTime();
       publishSensorDataToXbee();
     }
   }
